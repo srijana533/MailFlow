@@ -1,0 +1,156 @@
+version: "3.9"
+
+# =============================================================================
+# MailFlow — Complete local development stack
+#
+# Services:
+#   postgres   — PostgreSQL 16 database
+#   redis      — Redis 7 for rate limiting + caching
+#   rabbitmq   — RabbitMQ 3 with management UI
+#   mailhog    — Fake SMTP server (dev email capture)
+#   backend    — Spring Boot application
+#   frontend   — React dashboard (Vite dev server)
+#
+# Start: docker compose up
+# Stop:  docker compose down
+# Reset: docker compose down -v
+# =============================================================================
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: mailflow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mailflow
+      POSTGRES_USER: mailflow
+      POSTGRES_PASSWORD: mailflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mailflow -d mailflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: mailflow-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ── RabbitMQ ─────────────────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: mailflow-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # Management UI → http://localhost:15672
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ── MailHog (Fake SMTP) ───────────────────────────────────────────────────────
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: mailflow-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI → http://localhost:8025
+    logging:
+      driver: none
+
+  # ── Backend ──────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mailflow-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      # Database
+      DB_URL: jdbc:postgresql://postgres:5432/mailflow
+      DB_USERNAME: mailflow
+      DB_PASSWORD: mailflow
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # RabbitMQ
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+      # SMTP (MailHog)
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_AUTH: "false"
+      SMTP_TLS: "false"
+      # Email config
+      EMAIL_MODE: development
+      EMAIL_FROM_ADDRESS: noreply@mailflow.local
+      EMAIL_FROM_NAME: MailFlow
+      EMAIL_RATE_LIMIT: 100
+      # JWT — CHANGE IN PRODUCTION
+      JWT_SECRET: change-me-in-production-must-be-at-least-256-bits-long
+      # Batch
+      BATCH_CHUNK_SIZE: 50
+      BATCH_MAX_RETRIES: 3
+      # AI (disabled by default)
+      AI_ENABLED: "false"
+      OPENAI_API_KEY: ""
+      # App
+      APP_BASE_URL: http://localhost:8080
+      SERVER_PORT: 8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - uploads:/app/uploads
+
+  # ── Frontend ─────────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mailflow-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      VITE_API_URL: http://localhost:8080
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  uploads:

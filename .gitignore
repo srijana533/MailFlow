@@ -1,0 +1,48 @@
+# ── Java / Maven ──────────────────────────────────────────────────────────────
+target/
+*.class
+*.jar
+*.war
+.mvn/
+mvnw
+mvnw.cmd
+
+# ── IDE ────────────────────────────────────────────────────────────────────────
+.idea/
+*.iml
+.eclipse/
+.vscode/settings.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# ── Environment / Secrets ─────────────────────────────────────────────────────
+.env
+.env.local
+.env.production
+*.key
+*.pem
+*.p12
+
+# ── Frontend ───────────────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ── Uploads ────────────────────────────────────────────────────────────────────
+uploads/
+test-uploads/
+
+# ── OS ─────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Logs / crash dumps / scratch output ─────────────────────────────────────────
+*.log
+logs/
+*.dump
+hs_err_pid*.log
+# Ad-hoc backend run logs captured during local testing
+backend_*.txt
+*_run*.txt

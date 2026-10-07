@@ -1,0 +1,236 @@
+spring:
+  application:
+    name: mailflow
+
+  # ── Database ──────────────────────────────────────────────────────────────
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/mailflow}
+    username: ${DB_USERNAME:mailflow}
+    password: ${DB_PASSWORD:mailflow}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      pool-name: MailFlowPool
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  # ── JPA / Hibernate ───────────────────────────────────────────────────────
+  jpa:
+    hibernate:
+      ddl-auto: validate          # Flyway owns schema creation
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        default_batch_fetch_size: 50
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+
+  # ── Flyway ─────────────────────────────────────────────────────────────────
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    validate-on-migrate: true
+
+  # ── Spring Batch ──────────────────────────────────────────────────────────
+  batch:
+    job:
+      enabled: false              # Jobs are triggered programmatically, not on startup
+    jdbc:
+      initialize-schema: never    # Flyway handles batch schema too
+
+  # ── RabbitMQ ──────────────────────────────────────────────────────────────
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    virtual-host: /
+    # connection-timeout=0 means wait indefinitely but lazy=true means
+    # the connection is only established when first needed, not on startup.
+    # This allows the app to start even when RabbitMQ is temporarily unavailable.
+    connection-timeout: 5000
+    listener:
+      simple:
+        prefetch: 10
+        auto-startup: true
+        retry:
+          enabled: true
+          initial-interval: 2000
+          max-attempts: 3
+          multiplier: 2.0
+          max-interval: 10000
+    template:
+      retry:
+        enabled: true
+        initial-interval: 1000
+        max-attempts: 3
+        multiplier: 1.5
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+
+  # ── Mail (SMTP) ────────────────────────────────────────────────────────────
+  # Fully environment-driven. Two tested configurations:
+  #
+  #   MailHog (local dev — default):
+  #     SMTP_HOST=localhost  SMTP_PORT=1025  SMTP_AUTH=false  SMTP_TLS=false
+  #
+  #   Gmail SMTP (real delivery):
+  #     SMTP_HOST=smtp.gmail.com  SMTP_PORT=587  SMTP_AUTH=true  SMTP_TLS=true
+  #     SMTP_USERNAME=<gmail-address>  SMTP_PASSWORD=<google-app-password>
+  #
+  # NEVER commit real credentials. See docs/EMAIL_SMTP_SETUP.md.
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:1025}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${SMTP_AUTH:false}
+          starttls:
+            # enable negotiates STARTTLS if the server offers it;
+            # required (tied to the same SMTP_TLS flag) refuses to send
+            # over an un-encrypted channel — mandatory for Gmail on 587.
+            enable: ${SMTP_TLS:false}
+            required: ${SMTP_TLS:false}
+          # Trust host for the STARTTLS handshake. Leave empty for MailHog;
+          # set SMTP_SSL_TRUST=smtp.gmail.com for Gmail if the runtime JVM
+          # trust store needs an explicit allow. Empty = use default trust.
+          ssl:
+            trust: ${SMTP_SSL_TRUST:}
+          # Timeouts (ms). Gmail can be slower than a local MailHog, so the
+          # defaults are generous but overridable per environment.
+          connectiontimeout: ${SMTP_CONNECTION_TIMEOUT_MS:10000}
+          timeout: ${SMTP_READ_TIMEOUT_MS:10000}
+          writetimeout: ${SMTP_WRITE_TIMEOUT_MS:10000}
+    test-connection: false
+
+  # ── Servlet / File Upload ─────────────────────────────────────────────────
+  servlet:
+    multipart:
+      max-file-size: 25MB
+      max-request-size: 30MB
+
+  # ── FreeMarker (email templates) ──────────────────────────────────────────
+  freemarker:
+    enabled: false  # We configure it manually (not for MVC views)
+
+  # ── Cache ─────────────────────────────────────────────────────────────────
+  cache:
+    type: redis
+    redis:
+      time-to-live: 600000  # 10 minutes default
+
+# ── Server ────────────────────────────────────────────────────────────────────
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: always
+    include-binding-errors: always
+    include-stacktrace: never
+    include-exception: false
+
+# ── Actuator ──────────────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,loggers
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when_authorized
+      show-components: when_authorized
+  info:
+    env:
+      enabled: true
+
+# ── OpenAPI / Swagger ─────────────────────────────────────────────────────────
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha
+  show-actuator: false
+
+# ── JWT ───────────────────────────────────────────────────────────────────────
+mailflow:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:change-me-in-production-must-be-at-least-256-bits-long-secret-key}
+      access-token-expiry-ms: ${JWT_ACCESS_EXPIRY_MS:3600000}      # 1 hour
+      refresh-token-expiry-ms: ${JWT_REFRESH_EXPIRY_MS:604800000}  # 7 days
+
+  # ── Email Engine ──────────────────────────────────────────────────────────
+  email:
+    from-name: ${EMAIL_FROM_NAME:MailFlow Platform}
+    from-address: ${EMAIL_FROM_ADDRESS:noreply@mailflow.local}
+    rate-limit-per-minute: ${EMAIL_RATE_LIMIT:100}
+    mode: ${EMAIL_MODE:development}   # development | production
+
+  # ── Batch ─────────────────────────────────────────────────────────────────
+  batch:
+    chunk-size: ${BATCH_CHUNK_SIZE:50}
+    max-retries: ${BATCH_MAX_RETRIES:3}
+    skip-limit: ${BATCH_SKIP_LIMIT:100}
+    throttle-limit: ${BATCH_THROTTLE_LIMIT:4}
+
+  # ── File Storage ──────────────────────────────────────────────────────────
+  storage:
+    upload-dir: ${UPLOAD_DIR:./uploads}
+    max-attachment-size-mb: ${MAX_ATTACHMENT_MB:10}
+    allowed-mime-types: >
+      application/pdf,
+      application/msword,
+      application/vnd.openxmlformats-officedocument.wordprocessingml.document,
+      image/png,image/jpeg,image/gif,
+      text/plain,
+      application/zip
+
+  # ── AI Email Copilot ──────────────────────────────────────────────────────
+  ai:
+    enabled: ${AI_ENABLED:false}
+    provider: ${AI_PROVIDER:openai}
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      model: ${OPENAI_MODEL:gpt-4o-mini}
+      base-url: https://api.openai.com/v1
+      timeout-seconds: 30
+
+  # ── Unsubscribe ────────────────────────────────────────────────────────────
+  unsubscribe:
+    base-url: ${APP_BASE_URL:http://localhost:8080}
+    token-expiry-days: 365
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  level:
+    root: INFO
+    com.mailflow: DEBUG
+    org.springframework.batch: INFO
+    org.springframework.security: INFO
+    org.hibernate.SQL: WARN
+    org.flywaydb: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

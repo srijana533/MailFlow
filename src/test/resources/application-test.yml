@@ -1,0 +1,50 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
+  batch:
+    job:
+      enabled: false
+    jdbc:
+      initialize-schema: always
+  rabbitmq:
+    host: localhost
+    port: 5672
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  mail:
+    host: localhost
+    port: 1025
+
+mailflow:
+  security:
+    jwt:
+      secret: test-secret-key-for-unit-tests-only-not-production-32chars-min
+      access-token-expiry-ms: 3600000
+      refresh-token-expiry-ms: 604800000
+  email:
+    from-name: MailFlow Test
+    from-address: test@mailflow.local
+    rate-limit-per-minute: 1000
+    mode: development
+  batch:
+    chunk-size: 10
+    max-retries: 1
+    skip-limit: 5
+    throttle-limit: 1
+  ai:
+    enabled: false
+  storage:
+    upload-dir: ./test-uploads

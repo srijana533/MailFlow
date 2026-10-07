@@ -1,0 +1,140 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+   MailFlow Design System — premium light B2B SaaS theme
+   Palette: slate neutrals, blue (brand) + purple (accent)
+   ========================================================================== */
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Consistent, subtle scrollbars */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* ── Buttons ─────────────────────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm
+           font-semibold transition-all duration-150 focus:outline-none
+           focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed
+           disabled:opacity-60;
+  }
+  .btn-sm {
+    @apply px-3 py-2 text-xs;
+  }
+  .btn-icon {
+    @apply inline-flex items-center justify-center rounded-lg p-2 transition-all duration-150
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
+           disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .btn-primary {
+    @apply btn bg-brand-600 text-white shadow-sm hover:bg-brand-700 hover:shadow-card-hover
+           active:bg-brand-800 focus-visible:ring-brand-500;
+  }
+  .btn-secondary {
+    @apply btn border border-slate-200 bg-white text-slate-700 shadow-sm
+           hover:bg-slate-50 hover:border-slate-300 active:bg-slate-100
+           focus-visible:ring-brand-500;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900
+           focus-visible:ring-slate-400;
+  }
+  .btn-danger {
+    @apply btn bg-red-600 text-white shadow-sm hover:bg-red-700 active:bg-red-800
+           focus-visible:ring-red-500;
+  }
+
+  /* ── Cards ───────────────────────────────────────────────────────────── */
+  .card {
+    @apply rounded-2xl border border-slate-200 bg-white shadow-card;
+  }
+  .card-pad {
+    @apply p-6;
+  }
+  .card-hoverable {
+    @apply transition-all duration-200 hover:border-slate-300 hover:shadow-card-hover;
+  }
+
+  /* ── Inputs ──────────────────────────────────────────────────────────── */
+  .input {
+    @apply w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm
+           text-slate-900 placeholder-slate-400 shadow-sm transition
+           focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/10
+           disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-slate-700;
+  }
+
+  /* ── Badges ──────────────────────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium;
+  }
+
+  /* ── Layout helpers ──────────────────────────────────────────────────── */
+  .page {
+    @apply mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8;
+  }
+  .section-title {
+    @apply text-base font-semibold text-slate-900;
+  }
+
+  /* ── Sidebar nav link ────────────────────────────────────────────────── */
+  .nav-link {
+    @apply flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors;
+  }
+  .nav-link-active {
+    @apply bg-brand-50 text-brand-700;
+  }
+  .nav-link-idle {
+    @apply text-slate-600 hover:bg-slate-100 hover:text-slate-900;
+  }
+}
+
+@layer utilities {
+  /* Skeleton shimmer */
+  .skeleton {
+    @apply relative overflow-hidden rounded-md bg-slate-100;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.65),
+      transparent
+    );
+    animation: shimmer 1.5s infinite;
+  }
+}

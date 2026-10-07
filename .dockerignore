@@ -1,0 +1,17 @@
+# Backend build context exclusions
+target/
+*.jar
+*.log
+*.dump
+.git/
+.github/
+.idea/
+.vscode/
+frontend/
+docs/
+uploads/
+test-uploads/
+.env
+.env.*
+*.md
+backend_*.txt
