@@ -19,6 +19,18 @@ const SENDER_ROLES = ['ADMIN', 'CAMPAIGN_MANAGER'];
 /** Statuses from which a campaign can be launched. */
 const LAUNCHABLE: CampaignStatus[] = ['DRAFT', 'SCHEDULED'];
 
+/**
+ * Formats emails-per-minute throughput for display.
+ * Below 1/min we show two decimals (e.g. 0.66) so slow sends aren't rounded up
+ * to a misleading "1"; at/above 1/min we show a whole number.
+ */
+function formatThroughput(value: number): string {
+  if (value <= 0) return '0';
+  if (value < 1) return value.toFixed(2);
+  if (value < 10) return value.toFixed(1);
+  return Math.round(value).toString();
+}
+
 function MetricTile({
   icon: Icon, label, value, tone,
 }: {
@@ -231,7 +243,7 @@ export default function CampaignDetailPage() {
             </ResponsiveContainer>
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
               <span className="text-3xl font-bold text-slate-900">{successRate.toFixed(0)}%</span>
-              <span className="text-xs text-slate-400">delivered</span>
+              <span className="text-xs text-slate-400">sent</span>
             </div>
           </div>
         </Card>
@@ -245,7 +257,7 @@ export default function CampaignDetailPage() {
             </div>
             <div>
               <p className="text-3xl font-bold tabular-nums text-slate-900">
-                {(analytics?.throughputPerMinute ?? 0).toFixed(0)}
+                {formatThroughput(analytics?.throughputPerMinute ?? 0)}
               </p>
               <p className="text-sm text-slate-500">emails / minute</p>
             </div>

@@ -26,6 +26,19 @@ function initials(first?: string, last?: string): string {
   return `${first?.[0] ?? ''}${last?.[0] ?? ''}`.toUpperCase() || 'U';
 }
 
+// Role precedence (highest privilege first). The backend may return the user's
+// roles in any order, so we display the highest-privilege role the user holds
+// rather than whichever role happens to be first in the array.
+const ROLE_PRECEDENCE = ['ADMIN', 'CAMPAIGN_MANAGER', 'VIEWER'];
+
+function primaryRole(roles?: string[]): string {
+  if (!roles || roles.length === 0) return 'User';
+  for (const role of ROLE_PRECEDENCE) {
+    if (roles.includes(role)) return role;
+  }
+  return roles[0];
+}
+
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { user, logout } = useAuthStore();
 
@@ -134,7 +147,7 @@ export default function Layout() {
                 <p className="text-xs font-semibold text-slate-900">
                   {user.firstName} {user.lastName}
                 </p>
-                <p className="text-xs text-slate-500">{user.roles?.[0] ?? 'User'}</p>
+                <p className="text-xs text-slate-500">{primaryRole(user.roles)}</p>
               </div>
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-accent-500 text-xs font-semibold text-white">
                 {initials(user.firstName, user.lastName)}
