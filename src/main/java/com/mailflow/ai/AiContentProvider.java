@@ -19,6 +19,16 @@ public interface AiContentProvider {
      */
     AiGeneratedContent generate(String prompt);
 
+    /**
+     * Improves/polishes an existing email draft (subject + body), preserving the
+     * user's meaning, facts, links and calls to action. The result is returned
+     * for human review — it is never sent automatically.
+     *
+     * @param request the draft plus optional purpose/audience/tone/key points
+     * @return the improved subject and body
+     */
+    ImprovedEmail improve(ImproveEmailRequest request);
+
     /** Returns true if AI generation is available. */
     boolean isAvailable();
 }

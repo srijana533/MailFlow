@@ -1,13 +1,15 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { AlertCircle, ArrowLeft, ArrowRight, Users } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowRight, Users, Sparkles } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { campaignsApi } from '../api/campaigns';
 import { recipientsApi, type ExcelRowPreview } from '../api/recipients';
 import type { EmailTemplate, PageResponse, Campaign } from '../types';
 import { Modal, Button } from './ui';
 import { RecipientExcelUpload } from './RecipientExcelUpload';
+import { AiImproveModal } from './AiImproveModal';
+import type { ImprovedEmail } from '../api/ai';
 
 interface CampaignFormModalProps {
   open: boolean;
@@ -66,6 +68,10 @@ export function CampaignFormModal({ open, onClose, onCreated }: CampaignFormModa
   const [form, setForm] = useState<FormState>(EMPTY);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [validRows, setValidRows] = useState<ExcelRowPreview[]>([]);
+  const [aiOpen, setAiOpen] = useState(false);
+  // Body produced by AI (the campaign body lives in the chosen template; this
+  // lets the user see/copy the improved body). Not persisted automatically.
+  const [aiBody, setAiBody] = useState('');
 
   // Reset everything whenever the modal is (re)opened
   useEffect(() => {
@@ -74,6 +80,8 @@ export function CampaignFormModal({ open, onClose, onCreated }: CampaignFormModa
       setErrors({});
       setStep('details');
       setValidRows([]);
+      setAiOpen(false);
+      setAiBody('');
     }
   }, [open]);
 
@@ -99,6 +107,21 @@ export function CampaignFormModal({ open, onClose, onCreated }: CampaignFormModa
       subject: f.subject.trim() ? f.subject : tpl?.subject ?? f.subject,
     }));
     if (errors.templateId) setErrors((e) => ({ ...e, templateId: undefined }));
+  };
+
+  // Body context for AI: the selected template's body (plain or HTML), if any.
+  const selectedTemplate = templates.find((t) => String(t.id) === form.templateId);
+  const draftBody = aiBody
+    || selectedTemplate?.plainBody
+    || selectedTemplate?.htmlBody
+    || form.description
+    || '';
+
+  // Apply the AI-improved draft: update the subject and keep the improved body
+  // visible for the user to copy into their template. Nothing is sent.
+  const handleAiAccept = (result: ImprovedEmail) => {
+    set('subject', result.subject);
+    setAiBody(result.body);
   };
 
   const createMutation = useMutation({
@@ -192,6 +215,7 @@ export function CampaignFormModal({ open, onClose, onCreated }: CampaignFormModa
     );
 
   return (
+    <>
     <Modal
       open={open}
       onClose={onClose}
@@ -252,7 +276,16 @@ export function CampaignFormModal({ open, onClose, onCreated }: CampaignFormModa
 
           {/* Subject */}
           <div>
-            <label htmlFor="c-subject" className="label">Subject <span className="text-red-500">*</span></label>
+            <div className="flex items-center justify-between">
+              <label htmlFor="c-subject" className="label">Subject <span className="text-red-500">*</span></label>
+              <button
+                type="button"
+                onClick={() => setAiOpen(true)}
+                className="mb-1.5 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700 hover:underline"
+              >
+                <Sparkles className="h-3.5 w-3.5" /> Improve with AI
+              </button>
+            </div>
             <input
               id="c-subject"
               className={`input ${errors.subject ? 'border-red-400 focus:border-red-500 focus:ring-red-500/10' : ''}`}
@@ -263,6 +296,25 @@ export function CampaignFormModal({ open, onClose, onCreated }: CampaignFormModa
             />
             {errors.subject && <p className="mt-1 flex items-center gap-1 text-xs text-red-600"><AlertCircle className="h-3.5 w-3.5" />{errors.subject}</p>}
           </div>
+
+          {/* AI-improved body preview (for the user to copy into their template) */}
+          {aiBody && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+              <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+                <Sparkles className="h-3.5 w-3.5" /> AI-improved body (copy into your template)
+              </div>
+              <textarea
+                readOnly
+                className="input min-h-[120px] resize-y bg-white font-mono text-xs"
+                value={aiBody}
+                onFocus={(e) => e.target.select()}
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                The campaign body comes from the selected template. Paste this improved copy into the
+                template to use it. Merge variables like {'{{Name}}'} are preserved.
+              </p>
+            </div>
+          )}
 
           {/* Description */}
           <div>
@@ -332,5 +384,14 @@ export function CampaignFormModal({ open, onClose, onCreated }: CampaignFormModa
         </div>
       )}
     </Modal>
+
+    <AiImproveModal
+      open={aiOpen}
+      onClose={() => setAiOpen(false)}
+      initialSubject={form.subject}
+      initialBody={draftBody}
+      onAccept={handleAiAccept}
+    />
+    </>
   );
 }

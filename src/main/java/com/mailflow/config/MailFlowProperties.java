@@ -98,16 +98,31 @@ public class MailFlowProperties {
     @Data
     public static class Ai {
         private boolean enabled = false;
+        /** "openai" or "gemini". Selects the active AI content provider. */
         private String provider = "openai";
 
         @NotNull
         private OpenAi openai = new OpenAi();
+
+        @NotNull
+        private Gemini gemini = new Gemini();
 
         @Data
         public static class OpenAi {
             private String apiKey = "";
             private String model = "gpt-4o-mini";
             private String baseUrl = "https://api.openai.com/v1";
+            private int timeoutSeconds = 30;
+        }
+
+        @Data
+        public static class Gemini {
+            /** Google Generative Language API key (from GEMINI_API_KEY env var). */
+            private String apiKey = "";
+            /** Model id, e.g. gemini-1.5-flash / gemini-2.0-flash. */
+            private String model = "gemini-1.5-flash";
+            /** Generative Language API base URL. */
+            private String baseUrl = "https://generativelanguage.googleapis.com/v1beta";
             private int timeoutSeconds = 30;
         }
     }

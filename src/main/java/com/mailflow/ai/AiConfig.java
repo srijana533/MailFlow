@@ -27,12 +27,32 @@ public class AiConfig {
                                                 ObjectMapper objectMapper) {
         MailFlowProperties.Ai ai = properties.getAi();
 
-        if (!ai.isEnabled() || ai.getOpenai().getApiKey().isBlank()) {
-            log.info("AI email copilot: DISABLED (set AI_ENABLED=true and OPENAI_API_KEY to enable)");
+        if (!ai.isEnabled()) {
+            log.info("AI assistance: DISABLED (set AI_ENABLED=true to enable)");
             return new NoOpAiContentProvider();
         }
 
-        log.info("AI email copilot: ENABLED (provider={})", ai.getProvider());
-        return new OpenAiContentProvider(properties, webClientBuilder, objectMapper);
+        String provider = ai.getProvider() == null ? "" : ai.getProvider().trim().toLowerCase();
+
+        if ("gemini".equals(provider)) {
+            if (ai.getGemini().getApiKey().isBlank()) {
+                log.warn("AI assistance: provider=gemini but GEMINI_API_KEY is not set — AI disabled");
+                return new NoOpAiContentProvider();
+            }
+            log.info("AI assistance: ENABLED (provider=gemini, model={})", ai.getGemini().getModel());
+            return new GeminiContentProvider(properties, webClientBuilder, objectMapper);
+        }
+
+        if ("openai".equals(provider)) {
+            if (ai.getOpenai().getApiKey().isBlank()) {
+                log.warn("AI assistance: provider=openai but OPENAI_API_KEY is not set — AI disabled");
+                return new NoOpAiContentProvider();
+            }
+            log.info("AI assistance: ENABLED (provider=openai, model={})", ai.getOpenai().getModel());
+            return new OpenAiContentProvider(properties, webClientBuilder, objectMapper);
+        }
+
+        log.warn("AI assistance: unknown provider '{}' — AI disabled", provider);
+        return new NoOpAiContentProvider();
     }
 }

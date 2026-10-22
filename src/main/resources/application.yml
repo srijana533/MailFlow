@@ -211,12 +211,17 @@ mailflow:
   # ── AI Email Copilot ──────────────────────────────────────────────────────
   ai:
     enabled: ${AI_ENABLED:false}
-    provider: ${AI_PROVIDER:openai}
+    provider: ${AI_PROVIDER:gemini}   # gemini | openai
     openai:
       api-key: ${OPENAI_API_KEY:}
       model: ${OPENAI_MODEL:gpt-4o-mini}
       base-url: https://api.openai.com/v1
       timeout-seconds: 30
+    gemini:
+      api-key: ${GEMINI_API_KEY:}
+      model: ${GEMINI_MODEL:gemini-1.5-flash}
+      base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}
+      timeout-seconds: ${GEMINI_TIMEOUT_SECONDS:30}
 
   # ── Unsubscribe ────────────────────────────────────────────────────────────
   unsubscribe:

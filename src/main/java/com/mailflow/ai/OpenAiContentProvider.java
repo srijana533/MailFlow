@@ -67,6 +67,44 @@ public class OpenAiContentProvider implements AiContentProvider {
     }
 
     @Override
+    public ImprovedEmail improve(ImproveEmailRequest request) {
+        MailFlowProperties.Ai.OpenAi config = properties.getAi().getOpenai();
+
+        String userPrompt = AiPromptBuilder.buildImprovePrompt(request);
+        String jsonResponse = webClientBuilder.build()
+                .post()
+                .uri(config.getBaseUrl() + "/chat/completions")
+                .header("Authorization", "Bearer " + config.getApiKey())
+                .header("Content-Type", "application/json")
+                .bodyValue(Map.of(
+                    "model", config.getModel(),
+                    "messages", List.of(
+                        Map.of("role", "system", "content", AiPromptBuilder.IMPROVE_SYSTEM_PROMPT),
+                        Map.of("role", "user", "content", userPrompt)
+                    ),
+                    "temperature", 0.5,
+                    "response_format", Map.of("type", "json_object")
+                ))
+                .retrieve()
+                .bodyToMono(String.class)
+                .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
+                .block();
+
+        try {
+            JsonNode root = objectMapper.readTree(jsonResponse);
+            String content = root.path("choices").get(0).path("message").path("content").asText();
+            JsonNode parsed = objectMapper.readTree(content);
+            return new ImprovedEmail(
+                parsed.path("subject").asText(request.subject()),
+                parsed.path("body").asText(request.body())
+            );
+        } catch (Exception e) {
+            log.error("Failed to parse OpenAI improve response: {}", e.getMessage());
+            throw new RuntimeException("AI response parsing failed", e);
+        }
+    }
+
+    @Override
     public boolean isAvailable() {
         return true;
     }

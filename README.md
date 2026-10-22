@@ -31,6 +31,7 @@ MailFlow is a full-stack email campaign platform that lets authenticated users i
 - **Retry handling** — transient SMTP failures are retried with backoff; permanent failures are not retried.
 - **Role-based access** — JWT auth with `ADMIN`, `CAMPAIGN_MANAGER`, and `VIEWER` roles.
 - **Gmail SMTP integration** — real delivery via a Google App Password, configured entirely through environment variables; MailHog is the default for local/dev.
+- **AI-assisted drafting (optional)** — a "Improve with AI" action that uses Google Gemini to polish an email draft's subject and body (tone, clarity, professionalism) while preserving meaning, facts, links and merge variables. Human reviews and edits before use; nothing is sent automatically. Fully env-driven and off by default.
 - **Campaign tracking** — per-campaign sent/failed/skipped counts and a dashboard with real delivery stats.
 - **API docs** — Swagger UI at `/swagger-ui.html`.
 
@@ -140,10 +141,12 @@ Copy `.env.example` to `.env` and adjust as needed. **Never commit `.env` or any
 | `EMAIL_FROM_ADDRESS` / `EMAIL_FROM_NAME` | Default sender identity | `noreply@mailflow.local` / `MailFlow` |
 | `EMAIL_RATE_LIMIT` | Max emails per minute | `100` |
 | `JWT_SECRET` | JWT signing key (min 256 bits) | ⚠️ change for any real deployment |
+| `AI_ENABLED` / `AI_PROVIDER` | Enable AI drafting; `gemini` or `openai` | `false` / `gemini` |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | Google Gemini key + model (for AI drafting) | empty / `gemini-1.5-flash` |
 | `FRONTEND_URL` | Deployed frontend origin(s), added to CORS allow-list | `http://localhost:3000` |
 | `BACKEND_URL` | Public API base URL | `http://localhost:8080` |
 
-> **Secrets to never commit:** Gmail App Password, `JWT_SECRET` for production, database password, RabbitMQ production credentials, any API key. `.env`, `.env.*`, `*.key`, `*.pem`, and `*.p12` are already git-ignored.
+> **Secrets to never commit:** Gmail App Password, `GEMINI_API_KEY`, `JWT_SECRET` for production, database password, RabbitMQ production credentials, any API key. `.env`, `.env.*`, `*.key`, `*.pem`, and `*.p12` are already git-ignored.
 
 ---
 
@@ -174,6 +177,29 @@ EMAIL_FROM_ADDRESS=your@gmail.com
 ```
 
 Gmail requires **2-Step Verification** and a **Google App Password** (not your normal password). When authenticated SMTP is configured, the app validates the credentials are present at startup and fails fast with a clear message if any are missing.
+
+---
+
+## AI-assisted drafting (optional)
+
+MailFlow can use **Google Gemini** to help polish an email draft before sending. It is **AI-assisted drafting with human review** — the model never sends anything and never generates per-recipient content during bulk sending.
+
+**How it works:** in the campaign form, click **"Improve with AI"** next to the subject. Optionally add the campaign purpose, audience, tone (professional / friendly / persuasive / concise) and key points. The backend calls Gemini, returns an improved subject + body, and you **review and edit** before accepting. Merge variables like `{{Name}}`, `{{Company}}`, `{{Role}}` are preserved; the model is instructed not to invent recipient details, offers or facts.
+
+**Enable it** by setting these environment variables (AI is off by default):
+
+```
+AI_ENABLED=true
+AI_PROVIDER=gemini
+GEMINI_API_KEY=<your-google-ai-studio-key>   # never commit this
+GEMINI_MODEL=gemini-1.5-flash
+```
+
+Get a key from [Google AI Studio](https://aistudio.google.com/apikey). The key is read only from the environment — it is never hardcoded, logged, returned to the frontend, or committed.
+
+**Endpoints:** `GET /api/ai/status` (is AI available?) and `POST /api/ai/improve-email` (`{subject, body, purpose?, audience?, tone?, keyPoints?}` → `{subject, body}`). Both require the `ADMIN` or `CAMPAIGN_MANAGER` role. When AI is disabled or no key is set, these return HTTP 503 with a clear message and the rest of MailFlow is unaffected.
+
+**Verification status:** the integration is covered by automated tests using a **mocked** provider (no real API calls), and the disabled-path (503) was verified live. **Live Gemini authentication has not been verified** with a real key in this environment — supply a rotated `GEMINI_API_KEY` locally to use it for real.
 
 ---
 
@@ -217,9 +243,9 @@ npm run build         # frontend production build
 
 Current results (verified locally):
 
-- **Backend:** 50 tests pass (`mvn clean package` → BUILD SUCCESS). Covers auth, seed credentials, rate limiter, template engine, recipient import/preview, campaign service, batch personalization model, and SMTP configuration/validation.
+- **Backend:** 63 tests pass (`mvn clean package` → BUILD SUCCESS). Covers auth, seed credentials, rate limiter, template engine, recipient import/preview, campaign service, batch personalization model, SMTP configuration/validation, and the AI drafting provider + provider selection.
 - **Frontend:** `tsc --noEmit` passes with no type errors; `npm run build` produces a production bundle.
-- SMTP tests use mocks only — **no real emails are sent during tests.**
+- SMTP and AI tests use mocks only — **no real emails are sent and no real AI API calls are made during tests.**
 
 ### End-to-end (local, verified via MailHog)
 
@@ -237,6 +263,8 @@ A full run with **100 recipients** (plus one duplicate and one invalid row to ex
 | Delivered to MailHog | 100 |
 | Unresolved `{{ }}` placeholders | 0 |
 
+Additionally, with `AI_ENABLED=true` but no API key, `GET /api/ai/status` returned `available=false` and `POST /api/ai/improve-email` returned HTTP 503 — confirming AI is optional and fails safely without breaking the pipeline.
+
 These are the actual results observed on a local run against MailHog, not projected benchmarks. Throughput at larger scale depends on the SMTP provider's limits, the configured rate limit, and worker count.
 
 ---
@@ -251,6 +279,7 @@ mailer/
 │   ├── campaign/                 # campaign lifecycle
 │   ├── batch/                    # Spring Batch job (reader/processor/writer)
 │   ├── queue/                    # RabbitMQ producer + EmailConsumer
+│   ├── ai/                       # AI drafting (Gemini/OpenAI providers, controller)
 │   ├── email/                    # EmailProvider (SMTP), config, validation
 │   ├── template/                 # Freemarker personalization
 │   ├── analytics/                # dashboard + campaign stats

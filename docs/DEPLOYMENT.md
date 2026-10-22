@@ -58,6 +58,13 @@ SMTP_PASSWORD=<google-app-password>
 EMAIL_FROM_ADDRESS=<your-gmail-address>
 EMAIL_FROM_NAME=MailFlow
 
+# AI-assisted drafting (optional; off by default)
+# Only set these if you want the "Improve with AI" feature.
+AI_ENABLED=false
+AI_PROVIDER=gemini
+GEMINI_API_KEY=<google-ai-studio-key-if-enabling-ai>
+GEMINI_MODEL=gemini-1.5-flash
+
 # Security
 JWT_SECRET=<generate a long random value, min 256 bits>
 

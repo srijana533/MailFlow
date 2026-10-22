@@ -46,3 +46,7 @@ hs_err_pid*.log
 # Ad-hoc backend run logs captured during local testing
 backend_*.txt
 *_run*.txt
+ait.txt
+bp.txt
+pkg*.txt
+build_verify.txt
