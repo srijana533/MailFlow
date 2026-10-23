@@ -105,10 +105,126 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run Trivy vulnerability scanner
+      # Restore the SAME Maven cache the backend job saved (key derived from pom.xml),
+      # so Trivy can resolve Java dependencies from the local ~/.m2 repository offline.
+      - name: Set up JDK 21 (restore Maven cache)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      # PRIMARY COVERAGE MITIGATION (not an absolute guarantee).
+      # Trivy's offline pom scan can only analyze dependencies already present in the
+      # local ~/.m2 repository. Per aquasecurity/trivy#10691, when Trivy cannot resolve
+      # a dependency (e.g. remote 429) it soft-skips it and the scan can still report
+      # success — Trivy does NOT reliably enumerate what it skipped. Maven, by contrast,
+      # fails loudly when it cannot resolve the dependency/plugin graph. We therefore
+      # resolve the graph with Maven FIRST and fail the job on any unresolved artifact.
+      # Caveat: this strongly mitigates silent under-reporting but is not a 100%
+      # guarantee — Maven's resolve goals do not necessarily walk the exact same
+      # transitive set Trivy parses from pom.xml, and a dependency with an
+      # undeterminable version still has its children skipped by Trivy by design.
+      - name: Resolve Maven dependency graph into local repo (coverage mitigation)
+        id: maven_resolve
+        run: |
+          set -o pipefail
+          if mvn -B -ntp dependency:go-offline \
+                         dependency:resolve \
+                         dependency:resolve-plugins 2>&1 | tee mvn-resolve.log; then
+            echo "resolved=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "resolved=false" >> "$GITHUB_OUTPUT"
+            echo "::error::Maven could not resolve the full dependency/plugin graph — the local cache is INCOMPLETE, so an offline Trivy scan would silently under-report."
+            if grep -Eiq "status code: 429|Too Many Requests" mvn-resolve.log; then
+              echo "::error::Maven Central returned HTTP 429 (rate limited). Aborting rather than producing a silently-incomplete security scan (see aquasecurity/trivy#10691)."
+            fi
+            exit 1
+          fi
+          # Informational only — a non-empty local repo, NOT a proof of complete coverage.
+          echo "Local ~/.m2 .pom count (informational only): $(find ~/.m2/repository -name '*.pom' 2>/dev/null | wc -l)"
+
+      - name: Run Trivy vulnerability scanner (offline Maven resolution)
+        id: trivy
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'fs'
           scan-ref: '.'
+          scanners: 'vuln,secret,misconfig'   # preserve vulnerability, secret AND misconfig scanning
           severity: 'CRITICAL,HIGH'
+          format: 'json'
+          output: 'trivy-report.json'
           exit-code: '0'   # Non-blocking for now; set to '1' to block on critical findings
+        env:
+          # Resolve Java dependencies from the local ~/.m2 repo only — never contact Maven Central.
+          TRIVY_OFFLINE_SCAN: true
+
+      # Post-scan report. Runs even if the Trivy step failed (if: always()), but it
+      # does NOT convert a failed scan into a success — it fails when Maven resolution
+      # failed or when Trivy did not produce a report. It distinguishes four facts:
+      #   (1) whether Maven dependency resolution succeeded,
+      #   (2) whether Trivy produced a report,
+      #   (3) how many Java packages were discovered,
+      #   (4) coverage limitations that cannot be auto-verified.
+      - name: Report security scan coverage
+        if: always()
+        run: |
+          fail=0
+
+          # (1) Maven dependency resolution outcome.
+          if [ "${{ steps.maven_resolve.outputs.resolved }}" = "true" ]; then
+            echo "Maven dependency resolution: SUCCEEDED (local ~/.m2 populated)"
+          else
+            echo "Maven dependency resolution: FAILED or did not run"
+            fail=1
+          fi
+
+          # (2) Did Trivy produce a report, and is it valid JSON? Also honor the step outcome.
+          report_valid=0
+          if [ -f trivy-report.json ]; then
+            if jq -e . trivy-report.json >/dev/null 2>&1; then
+              echo "Trivy report: PRESENT and valid JSON (trivy-report.json)"
+              report_valid=1
+            else
+              echo "::error::trivy-report.json is present but is NOT valid JSON — cannot verify scan coverage."
+              fail=1
+            fi
+          else
+            echo "Trivy report: MISSING — the scan did not complete successfully"
+            fail=1
+          fi
+          if [ "${{ steps.trivy.outcome }}" = "failure" ]; then
+            echo "Trivy step outcome: FAILURE"
+            fail=1
+          fi
+
+          # (3) Evidence from the report (only parsed when the JSON is valid).
+          #     Distinguishes "scan completed" from "no CRITICAL/HIGH vulnerabilities".
+          if [ "$report_valid" -eq 1 ]; then
+            PKGS=$(jq '[.Results[]? | select(.Class=="lang-pkgs") | (.Packages // []) | length] | add // 0' trivy-report.json)
+            echo "Scan status: COMPLETED (a completed scan does NOT by itself mean the project is vulnerability-free)."
+            echo "Java/lang packages analyzed by Trivy (offline): ${PKGS:-0}"
+            jq -r '.Results[]? | select(.Class=="lang-pkgs") | "  target=\(.Target) type=\(.Type) packages=\((.Packages // []) | length)"' trivy-report.json || true
+            # Report the ACTUAL CRITICAL/HIGH finding count. exit-code is 0 (non-blocking)
+            # for now, so findings do NOT fail the job — they must be read here, not inferred
+            # from a green checkmark.
+            VULNS=$(jq '[.Results[]? | (.Vulnerabilities // [])[]] | length' trivy-report.json)
+            echo "CRITICAL/HIGH vulnerabilities reported by Trivy: ${VULNS:-0}"
+            if [ "${VULNS:-0}" -gt 0 ]; then
+              echo "::warning::Trivy reported ${VULNS} CRITICAL/HIGH vulnerability finding(s). The job is GREEN only because exit-code=0 (non-blocking); review the findings in the scan output."
+            fi
+            if [ "${PKGS:-0}" -eq 0 ]; then
+              echo "::warning::Trivy analyzed 0 Java packages — coverage is likely incomplete; investigate before trusting the result."
+            fi
+          fi
+
+          # (4) Coverage limitations that cannot be verified automatically.
+          echo "Coverage limitation: Trivy does not reliably enumerate dependencies it"
+          echo "  silently skips (aquasecurity/trivy#10691), so a clean Trivy result alone"
+          echo "  does NOT prove complete coverage. Trust requires BOTH: Maven resolution"
+          echo "  succeeded above AND a plausible package count. Otherwise review logs manually."
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::Security scan did not complete with verifiable coverage (see facts above)."
+            exit 1
+          fi
