@@ -17,12 +17,21 @@ public interface RecipientRepository extends JpaRepository<Recipient, Long> {
 
     boolean existsByEmailIgnoreCaseAndDeletedAtIsNull(String email);
 
+    /**
+     * Non-deleted recipients, optionally filtered by status and a search that matches
+     * the email, name, first name, last name, "first last" or company.
+     */
     @Query("""
            SELECT r FROM Recipient r
            WHERE r.deletedAt IS NULL
            AND (CAST(:search AS string) IS NULL
-                OR LOWER(r.email) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))
-                OR LOWER(r.name)  LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')))
+                OR LOWER(r.email)     LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))
+                OR LOWER(r.name)      LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))
+                OR LOWER(r.firstName) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))
+                OR LOWER(r.lastName)  LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))
+                OR LOWER(CONCAT(COALESCE(r.firstName, ''), ' ', COALESCE(r.lastName, '')))
+                                      LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))
+                OR LOWER(r.company)   LIKE LOWER(CONCAT('%', CAST(:search AS string), '%')))
            AND (:status IS NULL OR r.status = :status)
            """)
     Page<Recipient> findAllActive(
@@ -35,6 +44,17 @@ public interface RecipientRepository extends JpaRepository<Recipient, Long> {
 
     @Query("SELECT r.email FROM Recipient r WHERE r.email IN :emails AND r.deletedAt IS NULL")
     List<String> findExistingEmails(@Param("emails") List<String> emails);
+
+    /**
+     * Emails that belong to soft-deleted contacts. The email column is unique
+     * across deleted and live rows, so these addresses cannot be re-created and
+     * must be reported instead of failing an insert.
+     */
+    @Query("SELECT r.email FROM Recipient r WHERE r.email IN :emails AND r.deletedAt IS NOT NULL")
+    List<String> findDeletedEmails(@Param("emails") List<String> emails);
+
+    /** Non-deleted recipients by ID, in any status (used to reload a draft's selection). */
+    List<Recipient> findByIdInAndDeletedAtIsNull(java.util.Collection<Long> ids);
 
     /**
      * Finds active, subscribed recipients eligible for a campaign.

@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 public interface CampaignRecipientRepository extends JpaRepository<CampaignRecipient, Long> {
@@ -17,6 +18,18 @@ public interface CampaignRecipientRepository extends JpaRepository<CampaignRecip
     boolean existsByIdempotencyKey(String idempotencyKey);
 
     boolean existsByCampaignIdAndRecipientId(Long campaignId, Long recipientId);
+
+    /**
+     * Lower-case addresses that already have a delivery row in this campaign: the
+     * saved contact's email for contact rows, the snapshot email for campaign-only
+     * rows. A relaunch (from PAUSED or FAILED) uses it so no address gets a second row.
+     */
+    @Query("""
+           SELECT LOWER(COALESCE(r.email, cr.snapshotEmail)) FROM CampaignRecipient cr
+           LEFT JOIN cr.recipient r
+           WHERE cr.campaign.id = :campaignId
+           """)
+    List<String> findTargetedEmails(@Param("campaignId") Long campaignId);
 
     Optional<CampaignRecipient> findByIdempotencyKey(String idempotencyKey);
 
@@ -26,6 +39,29 @@ public interface CampaignRecipientRepository extends JpaRepository<CampaignRecip
     long countByCampaignIdAndDeliveryStatus(Long campaignId, DeliveryStatus status);
 
     long countByCampaignId(Long campaignId);
+
+    /**
+     * QUEUED rows of a campaign queued at or after {@code since}: rows whose message
+     * may still be waiting in RabbitMQ. Delete refuses while there are any. Older
+     * QUEUED rows (or ones without a queue time) can't have a message left in
+     * {@code email.queue}, whose messages expire after 24 hours.
+     */
+    @Query("""
+           SELECT COUNT(cr) FROM CampaignRecipient cr
+           WHERE cr.campaign.id = :campaignId
+             AND cr.deliveryStatus = 'QUEUED'
+             AND cr.queuedAt >= :since
+           """)
+    long countQueuedSince(@Param("campaignId") Long campaignId, @Param("since") Instant since);
+
+    /** Queue time of the newest row counted by {@link #countQueuedSince}; empty when there is none. */
+    @Query("""
+           SELECT MAX(cr.queuedAt) FROM CampaignRecipient cr
+           WHERE cr.campaign.id = :campaignId
+             AND cr.deliveryStatus = 'QUEUED'
+             AND cr.queuedAt >= :since
+           """)
+    Optional<Instant> findLatestQueuedAtSince(@Param("campaignId") Long campaignId, @Param("since") Instant since);
 
     /**
      * Marks a record as QUEUED after the batch writer publishes to RabbitMQ.
@@ -53,6 +89,36 @@ public interface CampaignRecipientRepository extends JpaRepository<CampaignRecip
            """)
     int markSent(@Param("key") String idempotencyKey,
                  @Param("now") Instant now);
+
+    /**
+     * Puts a QUEUED record back to PENDING when the consumer holds its message
+     * because the campaign is paused; resuming publishes it again. Rows in any other
+     * status (for example SENT) are left alone.
+     */
+    @Modifying
+    @Query("""
+           UPDATE CampaignRecipient cr
+           SET cr.deliveryStatus = 'PENDING', cr.queuedAt = NULL
+           WHERE cr.idempotencyKey = :key
+             AND cr.deliveryStatus = 'QUEUED'
+           """)
+    int returnQueuedToPending(@Param("key") String idempotencyKey);
+
+    /**
+     * Marks a QUEUED record SKIPPED with a reason, for a message the consumer drops
+     * without sending (for example because the campaign was cancelled). Rows in any
+     * other status (for example SENT) are left alone.
+     */
+    @Modifying
+    @Query("""
+           UPDATE CampaignRecipient cr
+           SET cr.deliveryStatus = 'SKIPPED', cr.failedAt = :now, cr.lastError = :reason
+           WHERE cr.idempotencyKey = :key
+             AND cr.deliveryStatus = 'QUEUED'
+           """)
+    int skipQueued(@Param("key") String idempotencyKey,
+                   @Param("now") Instant now,
+                   @Param("reason") String reason);
 
     /**
      * Marks a record as FAILED or SKIPPED and records the error reason.

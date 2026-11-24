@@ -21,18 +21,21 @@ public interface EmailLogRepository extends JpaRepository<EmailLog, Long> {
     List<Object[]> countByStatusForCampaign(@Param("id") Long campaignId);
 
     /**
-     * Daily sent-email volume using native PostgreSQL DATE_TRUNC.
+     * Daily sent-email volume using native PostgreSQL DATE_TRUNC. Emails of deleted
+     * campaigns are left out, like the dashboard totals; their log rows are kept.
      *
      * <p>Must be {@code nativeQuery = true} because {@code DATE_TRUNC} is a
      * PostgreSQL function that JPQL/Hibernate does not understand.
      */
     @Query(value = """
-           SELECT DATE_TRUNC('day', processed_at) AS day, COUNT(*) AS cnt
-           FROM email_logs
-           WHERE processed_at >= :from
-             AND processed_at <= :to
-             AND status = 'SENT'
-           GROUP BY DATE_TRUNC('day', processed_at)
+           SELECT DATE_TRUNC('day', l.processed_at) AS volume_day, COUNT(*) AS cnt
+           FROM email_logs l
+           JOIN campaigns c ON c.id = l.campaign_id
+           WHERE l.processed_at >= :from
+             AND l.processed_at <= :to
+             AND l.status = 'SENT'
+             AND c.deleted_at IS NULL
+           GROUP BY DATE_TRUNC('day', l.processed_at)
            ORDER BY 1
            """,
            nativeQuery = true)

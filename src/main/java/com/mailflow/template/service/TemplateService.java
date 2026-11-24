@@ -3,6 +3,10 @@ package com.mailflow.template.service;
 import com.mailflow.auth.entity.User;
 import com.mailflow.common.dto.PageResponse;
 import com.mailflow.common.exception.ResourceNotFoundException;
+import com.mailflow.recipient.entity.Recipient;
+import com.mailflow.template.dto.TemplateContentRenderRequest;
+import com.mailflow.template.dto.TemplateRenderRequest;
+import com.mailflow.template.dto.TemplateRenderResponse;
 import com.mailflow.template.dto.TemplateRequest;
 import com.mailflow.template.dto.TemplateResponse;
 import com.mailflow.template.entity.EmailTemplate;
@@ -94,6 +98,74 @@ public class TemplateService {
             "htmlBody", renderedHtml != null ? renderedHtml : "",
             "plainBody", renderedPlain != null ? renderedPlain : ""
         );
+    }
+
+    /**
+     * Renders the template for one recipient using the same personalisation
+     * model as a real campaign send ({@link PersonalizationModel}).
+     *
+     * <p>The recipient is a transient object built from the request and is never
+     * persisted. If {@code request.subject()} is blank the template subject is used.
+     */
+    @Transactional(readOnly = true)
+    public TemplateRenderResponse renderForRecipient(Long id, TemplateRenderRequest request) {
+        EmailTemplate template = getOrThrow(id);
+        String subjectSource = (request.subject() != null && !request.subject().isBlank())
+                ? request.subject() : template.getSubject();
+        return renderForSample(request.recipient(), subjectSource,
+                null, template.getHtmlBody(), template.getPlainBody());
+    }
+
+    /**
+     * Renders content that has not been saved for one sample recipient: a template
+     * being created or edited (the Templates page), or a campaign's own body (the
+     * campaign form; {@code customBody}). It uses the same {@link PersonalizationModel},
+     * template engine and {@link CampaignEmailContent} as a real send, and it neither
+     * reads nor writes the database.
+     */
+    public TemplateRenderResponse renderContent(TemplateContentRenderRequest request) {
+        return renderForSample(request.recipient().asRenderSample(),
+                request.subject(), request.customBody(), request.htmlBody(), request.plainBody());
+    }
+
+    /**
+     * Renders a subject and bodies for a transient sample recipient, which is never
+     * persisted, and reports the placeholders that resolve to an empty value. A
+     * non-blank {@code customBody} is rendered instead of the HTML and plain bodies,
+     * exactly as {@code CampaignItemProcessor} sends it.
+     */
+    private TemplateRenderResponse renderForSample(TemplateRenderRequest.Sample s, String subjectSource,
+                                                   String customBody, String htmlSource, String plainSource) {
+        Recipient sample = Recipient.builder()
+                .email(s.email())
+                .name(s.name())
+                .firstName(s.firstName())
+                .lastName(s.lastName())
+                .company(s.company())
+                .course(s.course())
+                .customFields(s.fields() != null ? new HashMap<>(s.fields()) : new HashMap<>())
+                .build();
+        Map<String, Object> model = PersonalizationModel.forRecipient(sample);
+
+        CampaignEmailContent.Rendered email = CampaignEmailContent.render(
+                templateEngine, model, subjectSource, customBody, htmlSource, plainSource);
+
+        java.util.Set<String> used = new java.util.LinkedHashSet<>();
+        used.addAll(templateEngine.extractVariables(subjectSource));
+        if (CampaignEmailContent.hasCustomBody(customBody)) {
+            used.addAll(templateEngine.extractVariables(customBody));
+        } else {
+            used.addAll(templateEngine.extractVariables(htmlSource));
+            used.addAll(templateEngine.extractVariables(plainSource));
+        }
+        List<String> empty = used.stream()
+                .filter(v -> {
+                    Object value = model.get(v);
+                    return value == null || value.toString().isBlank();
+                })
+                .toList();
+
+        return new TemplateRenderResponse(email.subject(), email.htmlBody(), email.plainBody(), empty);
     }
 
     // ── Internal ─────────────────────────────────────────────────────────────

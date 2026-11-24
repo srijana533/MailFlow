@@ -4,7 +4,9 @@ import com.mailflow.common.dto.ApiError;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -83,6 +85,36 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.UNAUTHORIZED)
                 .body(new ApiError(HttpStatus.UNAUTHORIZED.value(), "UNAUTHORIZED",
                                    "Invalid credentials", req.getRequestURI()));
+    }
+
+    // ── Concurrency / data conflicts ───────────────────────────────────────
+
+    /**
+     * Two requests changed the same record at once (for example a campaign
+     * launched twice in parallel). The losing request is rolled back.
+     */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ApiError> handleOptimisticLock(
+            ObjectOptimisticLockingFailureException ex, HttpServletRequest req) {
+        log.warn("Optimistic lock conflict at {}: {}", req.getRequestURI(), ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(new ApiError(HttpStatus.CONFLICT.value(), "CONFLICT",
+                                   "This item was changed by another request. Refresh and try again.",
+                                   req.getRequestURI()));
+    }
+
+    /** A database constraint (for example a unique key) rejected the change. */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiError> handleDataIntegrity(
+            DataIntegrityViolationException ex, HttpServletRequest req) {
+        log.warn("Data integrity conflict at {}: {}", req.getRequestURI(),
+                 ex.getMostSpecificCause().getMessage());
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(new ApiError(HttpStatus.CONFLICT.value(), "CONFLICT",
+                                   "The change conflicts with existing data. Refresh and try again.",
+                                   req.getRequestURI()));
     }
 
     // ── File upload ────────────────────────────────────────────────────────

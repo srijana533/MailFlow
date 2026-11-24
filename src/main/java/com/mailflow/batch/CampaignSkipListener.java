@@ -21,8 +21,9 @@ public class CampaignSkipListener implements SkipListener<CampaignRecipient, Ema
 
     @Override
     public void onSkipInProcess(CampaignRecipient item, Throwable t) {
+        // targetEmail() also covers campaign-only rows, which have no recipient.
         log.warn("Skipped during process for recipient {}: {}",
-                 item.getRecipient().getEmail(), t.getMessage());
+                 item.targetEmail(), t.getMessage());
     }
 
     @Override

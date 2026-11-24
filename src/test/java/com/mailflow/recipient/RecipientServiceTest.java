@@ -2,6 +2,7 @@ package com.mailflow.recipient;
 
 import com.mailflow.common.exception.ConflictException;
 import com.mailflow.common.exception.ValidationException;
+import com.mailflow.email.repository.UnsubscribeRepository;
 import com.mailflow.recipient.dto.RecipientRequest;
 import com.mailflow.recipient.dto.RecipientResponse;
 import com.mailflow.recipient.entity.Recipient;
@@ -28,6 +29,7 @@ import static org.mockito.Mockito.*;
 class RecipientServiceTest {
 
     @Mock private RecipientRepository recipientRepository;
+    @Mock private UnsubscribeRepository unsubscribeRepository;
     @InjectMocks private RecipientService recipientService;
 
     private Recipient sampleRecipient;
@@ -98,5 +100,76 @@ class RecipientServiceTest {
         recipientService.delete(1L);
 
         verify(recipientRepository).save(argThat(r -> r.getDeletedAt() != null));
+    }
+
+    @Test
+    void lookup_finds_saved_contacts_by_id_and_email_without_writing() {
+        Recipient byEmail = Recipient.builder()
+                .id(2L).email("grace@example.com").status(RecipientStatus.UNSUBSCRIBED).build();
+        when(recipientRepository.findByIdInAndDeletedAtIsNull(java.util.Set.of(1L, 99L)))
+                .thenReturn(java.util.List.of(sampleRecipient));
+        // Emails are normalised (trim + lower-case); invalid ones are ignored.
+        when(recipientRepository.findByEmailIn(java.util.List.of("grace@example.com", "old@example.com")))
+                .thenReturn(java.util.List.of(byEmail));
+        when(recipientRepository.findDeletedEmails(java.util.List.of("grace@example.com", "old@example.com")))
+                .thenReturn(java.util.List.of("old@example.com"));
+        when(unsubscribeRepository.findEmailsIn(java.util.List.of("grace@example.com", "old@example.com")))
+                .thenReturn(java.util.List.of("grace@example.com"));
+
+        var response = recipientService.lookup(new com.mailflow.recipient.dto.RecipientLookupRequest(
+                java.util.List.of(1L, 99L),
+                // Normalised with the shared rule, invisible characters included.
+                java.util.List.of(" Grace@Example.com\u00A0", "\u200Bold@example.com\uFEFF", "not-an-email")));
+
+        assertThat(response.recipients()).extracting(RecipientResponse::id).containsExactly(1L, 2L);
+        assertThat(response.recipients().get(1).status()).isEqualTo(RecipientStatus.UNSUBSCRIBED);
+        assertThat(response.deletedEmails()).containsExactly("old@example.com");
+        assertThat(response.unsubscribedEmails()).containsExactly("grace@example.com");
+        verify(recipientRepository, never()).save(any());
+        verify(recipientRepository, never()).saveAll(any());
+        verify(unsubscribeRepository, never()).save(any());
+    }
+
+    @Test
+    void create_normalises_the_email_before_checking_and_storing_it() {
+        when(recipientRepository.existsByEmailIgnoreCaseAndDeletedAtIsNull("ada@test.local")).thenReturn(false);
+        when(recipientRepository.save(any(Recipient.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        RecipientResponse response = recipientService.create(new RecipientRequest(
+                "\uFEFF Ada@Test.Local\u00A0", "Ada", null, null, null, null, null));
+
+        assertThat(response.email()).isEqualTo("ada@test.local");
+        verify(recipientRepository).existsByEmailIgnoreCaseAndDeletedAtIsNull("ada@test.local");
+        verify(recipientRepository).save(argThat(r -> r.getEmail().equals("ada@test.local")));
+    }
+
+    @Test
+    void the_request_normalises_the_email_before_bean_validation() {
+        jakarta.validation.Validator validator =
+                jakarta.validation.Validation.buildDefaultValidatorFactory().getValidator();
+        RecipientRequest padded = new RecipientRequest(" ada@test.local\u200B ", null, null, null, null, null, null);
+
+        assertThat(padded.email()).isEqualTo("ada@test.local");
+        assertThat(validator.validate(padded)).isEmpty();
+        assertThat(new RecipientRequest(null, null, null, null, null, null, null).email()).isNull();
+    }
+
+    @Test
+    void update_compares_and_stores_the_normalised_email() {
+        when(recipientRepository.findById(1L)).thenReturn(Optional.of(sampleRecipient));
+        when(recipientRepository.save(any(Recipient.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // Same address, other spelling: no "already in use" check against itself.
+        recipientService.update(1L, new RecipientRequest(
+                "\u2060TEST@example.com ", "Test User", null, null, null, null, null));
+        assertThat(sampleRecipient.getEmail()).isEqualTo("test@example.com");
+        verify(recipientRepository, never()).existsByEmailIgnoreCaseAndDeletedAtIsNull(any());
+
+        // A different address is checked and stored normalised.
+        when(recipientRepository.existsByEmailIgnoreCaseAndDeletedAtIsNull("new@example.com")).thenReturn(false);
+        recipientService.update(1L, new RecipientRequest(
+                " New@Example.com\u00A0", "Test User", null, null, null, null, null));
+        assertThat(sampleRecipient.getEmail()).isEqualTo("new@example.com");
+        verify(recipientRepository).existsByEmailIgnoreCaseAndDeletedAtIsNull("new@example.com");
     }
 }

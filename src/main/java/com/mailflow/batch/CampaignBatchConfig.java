@@ -1,7 +1,9 @@
 package com.mailflow.batch;
 
 import com.mailflow.campaign.entity.CampaignRecipient;
+import com.mailflow.campaign.entity.CampaignStatus;
 import com.mailflow.campaign.repository.CampaignRecipientRepository;
+import com.mailflow.campaign.repository.CampaignRepository;
 import com.mailflow.config.MailFlowProperties;
 import com.mailflow.email.UnsubscribeService;
 import com.mailflow.queue.EmailMessage;
@@ -24,6 +26,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Spring Batch configuration for the email campaign processing job.
@@ -37,11 +40,16 @@ import java.util.Map;
  * <p>Pipeline (per campaign):
  * <pre>
  *   campaignItemReader  — paged JPA, reads PENDING/FAILED campaign_recipients
+ *                         while the campaign is RUNNING
  *       ↓
- *   campaignItemProcessor — checks unsubscribe, personalises template variables
+ *   campaignItemProcessor — skips items once the campaign isn't RUNNING, checks
+ *                           unsubscribe, personalises template variables
  *       ↓
  *   campaignItemWriter  — publishes EmailMessage to RabbitMQ, marks QUEUED
+ *                         (nothing once the campaign isn't RUNNING)
  * </pre>
+ * Each stage re-reads the status, so pausing, cancelling or deleting a campaign stops
+ * it; cancelling also stops the job execution through {@code JobOperator.stop}.
  */
 @Slf4j
 @Configuration
@@ -50,6 +58,21 @@ public class CampaignBatchConfig {
 
     public static final String JOB_NAME  = "campaignEmailJob";
     public static final String STEP_NAME = "processRecipientsStep";
+
+    /**
+     * Unprocessed delivery rows of one campaign. LEFT JOIN so rows without a saved
+     * contact (campaign-only addresses, recipient NULL) are read too; rows of saved
+     * contacts are read only while the contact is ACTIVE and not deleted.
+     */
+    static final String READER_QUERY = """
+            SELECT cr FROM CampaignRecipient cr
+            LEFT JOIN FETCH cr.recipient r
+            WHERE cr.campaign.id = :campaignId
+              AND cr.deliveryStatus IN ('PENDING', 'FAILED')
+              AND (cr.recipient IS NULL
+                   OR (r.deletedAt IS NULL AND r.status = 'ACTIVE'))
+            ORDER BY cr.id
+            """;
 
     // Singletons — safe to inject via constructor
     private final JobRepository jobRepository;
@@ -64,6 +87,9 @@ public class CampaignBatchConfig {
     private final TemplateEngineService templateEngine;
     private final UnsubscribeService unsubscribeService;
     private final RabbitTemplate rabbitTemplate;
+
+    // Read before each page: the reader stops when the campaign is no longer RUNNING
+    private final CampaignRepository campaignRepository;
 
     // ── Step-scoped beans ─────────────────────────────────────────────────────
 
@@ -95,15 +121,7 @@ public class CampaignBatchConfig {
                 // Copy configuration from the builder-produced reader.
                 setEntityManagerFactory(entityManagerFactory);
                 setPageSize(properties.getBatch().getChunkSize());
-                setQueryString("""
-                        SELECT cr FROM CampaignRecipient cr
-                        JOIN FETCH cr.recipient r
-                        WHERE cr.campaign.id = :campaignId
-                          AND cr.deliveryStatus IN ('PENDING', 'FAILED')
-                          AND r.deletedAt IS NULL
-                          AND r.status = 'ACTIVE'
-                        ORDER BY cr.id
-                        """);
+                setQueryString(READER_QUERY);
                 setParameterValues(Map.of("campaignId", campaignId));
                 setSaveState(false);
                 setName("campaignRecipientReader");
@@ -115,6 +133,24 @@ public class CampaignBatchConfig {
                 // the result set, so offset 0 is always the next batch.
                 return 0;
             }
+
+            @Override
+            protected void doReadPage() {
+                // Pause, cancel and delete change the campaign row. Checking the status
+                // before each page makes the job stop at the next chunk boundary: an
+                // empty page ends the step, and the unread rows stay PENDING for a
+                // resume. The job listener then keeps the PAUSED or CANCELLED status.
+                // A deleted campaign has no status here (empty result).
+                CampaignStatus status = campaignRepository.findStatusById(campaignId).orElse(null);
+                if (status != CampaignStatus.RUNNING) {
+                    log.info("Campaign {} is {}: no more recipients are read",
+                            campaignId, status != null ? status : "deleted");
+                    if (results == null) results = new CopyOnWriteArrayList<>();
+                    else results.clear();
+                    return;
+                }
+                super.doReadPage();
+            }
         };
     }
 
@@ -122,13 +158,13 @@ public class CampaignBatchConfig {
     @StepScope
     public CampaignItemProcessor campaignItemProcessor() {
         return new CampaignItemProcessor(
-                templateEngine, unsubscribeService, campaignRecipientRepository);
+                templateEngine, unsubscribeService, campaignRecipientRepository, campaignRepository);
     }
 
     @Bean
     @StepScope
     public CampaignItemWriter campaignItemWriter() {
-        return new CampaignItemWriter(rabbitTemplate, campaignRecipientRepository);
+        return new CampaignItemWriter(rabbitTemplate, campaignRecipientRepository, campaignRepository);
     }
 
     // ── Job / Step ────────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -17,6 +18,7 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -29,6 +31,8 @@ import org.springframework.web.cors.CorsConfigurationSource;
  *   <li>Stateless sessions — JWT only, no HTTP session</li>
  *   <li>CSRF disabled — not needed for stateless REST APIs</li>
  *   <li>Role-based access on routes and method level (@PreAuthorize)</li>
+ *   <li>No or invalid token on a protected endpoint: 401; signed in without the
+ *       required role: 403</li>
  * </ul>
  *
  * <p>Public endpoints:
@@ -74,6 +78,9 @@ public class SecurityConfig {
                 // Everything else requires authentication
                 .anyRequest().authenticated()
             )
+            // A request without a valid token gets 401 (the default here was 403, which
+            // looked like a missing role). A signed-in user without the role still gets 403.
+            .exceptionHandling(eh -> eh.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
             .headers(headers -> headers
                 .frameOptions(fo -> fo.deny())
                 .contentTypeOptions(cto -> {})

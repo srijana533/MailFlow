@@ -4,6 +4,9 @@ import com.mailflow.common.dto.PageResponse;
 import com.mailflow.common.exception.ConflictException;
 import com.mailflow.common.exception.ResourceNotFoundException;
 import com.mailflow.common.util.EmailValidator;
+import com.mailflow.email.repository.UnsubscribeRepository;
+import com.mailflow.recipient.dto.RecipientLookupRequest;
+import com.mailflow.recipient.dto.RecipientLookupResponse;
 import com.mailflow.recipient.dto.RecipientRequest;
 import com.mailflow.recipient.dto.RecipientResponse;
 import com.mailflow.recipient.entity.Recipient;
@@ -19,6 +22,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Core CRUD service for recipients.
@@ -29,19 +39,22 @@ import java.time.Instant;
 public class RecipientService {
 
     private final RecipientRepository recipientRepository;
+    private final UnsubscribeRepository unsubscribeRepository;
 
     // ── CRUD ─────────────────────────────────────────────────────────────────
 
+    /** Emails are normalised ({@link EmailValidator#normalize}) before they are validated, checked and stored. */
     @Transactional
     @CacheEvict(value = "recipients", allEntries = true)
     public RecipientResponse create(RecipientRequest request) {
-        validateEmail(request.email());
+        String email = EmailValidator.normalize(request.email());
+        validateEmail(email);
 
-        if (recipientRepository.existsByEmailIgnoreCaseAndDeletedAtIsNull(request.email())) {
-            throw new ConflictException("Recipient already exists: " + request.email());
+        if (recipientRepository.existsByEmailIgnoreCaseAndDeletedAtIsNull(email)) {
+            throw new ConflictException("Recipient already exists: " + email);
         }
 
-        Recipient recipient = toEntity(request);
+        Recipient recipient = toEntity(request, email);
         recipient.setImportSource("API");
         return toResponse(recipientRepository.save(recipient));
     }
@@ -62,15 +75,16 @@ public class RecipientService {
     @CacheEvict(value = "recipients", key = "#id")
     public RecipientResponse update(Long id, RecipientRequest request) {
         Recipient existing = getOrThrow(id);
+        String email = EmailValidator.normalize(request.email());
 
-        if (!existing.getEmail().equalsIgnoreCase(request.email())) {
-            validateEmail(request.email());
-            if (recipientRepository.existsByEmailIgnoreCaseAndDeletedAtIsNull(request.email())) {
-                throw new ConflictException("Email already in use: " + request.email());
+        if (!Objects.equals(EmailValidator.normalize(existing.getEmail()), email)) {
+            validateEmail(email);
+            if (recipientRepository.existsByEmailIgnoreCaseAndDeletedAtIsNull(email)) {
+                throw new ConflictException("Email already in use: " + email);
             }
         }
 
-        existing.setEmail(request.email().toLowerCase());
+        existing.setEmail(email);
         existing.setName(request.name());
         existing.setFirstName(request.firstName());
         existing.setLastName(request.lastName());
@@ -91,6 +105,55 @@ public class RecipientService {
         log.info("Soft-deleted recipient id={}", id);
     }
 
+    // ── Lookup (read-only) ───────────────────────────────────────────────────
+
+    /**
+     * Finds saved contacts by ID and/or email without creating or changing anything.
+     * Emails are normalised ({@link EmailValidator#normalize}; contacts are stored
+     * normalised); invalid emails are ignored. Soft-deleted contacts are never
+     * returned, but their emails are reported in {@code deletedEmails}; addresses on
+     * the unsubscribe list are reported in {@code unsubscribedEmails}. Earlier
+     * campaigns play no part: a contact can be used by any number of campaigns.
+     */
+    @Transactional(readOnly = true)
+    public RecipientLookupResponse lookup(RecipientLookupRequest request) {
+        Map<Long, Recipient> found = new LinkedHashMap<>();
+
+        if (request.ids() != null && !request.ids().isEmpty()) {
+            Set<Long> ids = request.ids().stream()
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            if (!ids.isEmpty()) {
+                for (Recipient r : recipientRepository.findByIdInAndDeletedAtIsNull(ids)) {
+                    found.put(r.getId(), r);
+                }
+            }
+        }
+
+        List<String> deletedEmails = List.of();
+        List<String> unsubscribedEmails = List.of();
+        if (request.emails() != null && !request.emails().isEmpty()) {
+            List<String> emails = request.emails().stream()
+                    .filter(Objects::nonNull)
+                    .map(EmailValidator::normalize)
+                    .filter(EmailValidator::isValid)
+                    .distinct()
+                    .toList();
+            if (!emails.isEmpty()) {
+                for (Recipient r : recipientRepository.findByEmailIn(emails)) {
+                    found.putIfAbsent(r.getId(), r);
+                }
+                deletedEmails = recipientRepository.findDeletedEmails(emails);
+                unsubscribedEmails = unsubscribeRepository.findEmailsIn(emails);
+            }
+        }
+
+        return new RecipientLookupResponse(
+                found.values().stream().map(this::toResponse).toList(),
+                deletedEmails,
+                unsubscribedEmails);
+    }
+
     // ── Internal helpers ─────────────────────────────────────────────────────
 
     private Recipient getOrThrow(Long id) {
@@ -106,9 +169,9 @@ public class RecipientService {
         }
     }
 
-    private Recipient toEntity(RecipientRequest req) {
+    private Recipient toEntity(RecipientRequest req, String normalizedEmail) {
         return Recipient.builder()
-                .email(req.email().trim().toLowerCase())
+                .email(normalizedEmail)
                 .name(req.name())
                 .firstName(req.firstName())
                 .lastName(req.lastName())

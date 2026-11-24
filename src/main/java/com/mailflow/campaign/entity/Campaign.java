@@ -9,6 +9,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
@@ -16,13 +17,21 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * An email campaign ties together a template, a set of recipients,
- * configuration, and tracks all processing metrics.
+ * An email campaign ties together a template (or its own email body), a set of
+ * recipients, configuration, and tracks all processing metrics.
  *
  * <p>Optimistic locking ({@code @Version}) prevents concurrent
- * status transitions from clobbering each other.
+ * status transitions from clobbering each other; it also makes a delete and a
+ * launch or resume of the same campaign exclusive (the later commit fails).
+ *
+ * <p>{@code @DynamicUpdate}: saving the entity writes only the columns that changed.
+ * The send counters are incremented by bulk updates from the email consumer, which
+ * don't change {@code version}; a full-row update from a pause, resume, cancel or
+ * launch would otherwise write back the counters as they were when the entity was
+ * loaded and lose the increments made meanwhile.
  */
 @Entity
+@DynamicUpdate
 @Table(name = "campaigns")
 @Getter
 @Setter
@@ -43,6 +52,14 @@ public class Campaign {
 
     @Column(nullable = false)
     private String subject;
+
+    /**
+     * The campaign's own plain-text email body (V7), written in the campaign form.
+     * NULL means "use the template's body". When set, it is sent instead of the
+     * template's bodies, as the text/plain part plus an HTML part made from it.
+     */
+    @Column(name = "custom_body", columnDefinition = "TEXT")
+    private String customBody;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "template_id")
@@ -124,6 +141,20 @@ public class Campaign {
     @Column(name = "batch_job_id")
     private String batchJobId;
 
+    // ── Soft delete (V6) ────────────────────────────────────────────────────
+
+    /**
+     * When the campaign was deleted; null while it is live. A deleted campaign keeps
+     * its row and its delivery history but is hidden everywhere (lists, GET,
+     * analytics, dashboard, scheduler) and can no longer be changed or sent.
+     */
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
+    /** ID of the user who deleted the campaign, when known. */
+    @Column(name = "deleted_by")
+    private Long deletedBy;
+
     @Version
     @Column(nullable = false)
     @Builder.Default
@@ -149,5 +180,14 @@ public class Campaign {
         return status == CampaignStatus.DRAFT || status == CampaignStatus.SCHEDULED
                || status == CampaignStatus.QUEUED || status == CampaignStatus.RUNNING
                || status == CampaignStatus.PAUSED;
+    }
+
+    /** QUEUED or RUNNING: the batch job is (about to be) publishing its emails. */
+    public boolean isSending() {
+        return status == CampaignStatus.QUEUED || status == CampaignStatus.RUNNING;
+    }
+
+    public boolean isDeleted() {
+        return deletedAt != null;
     }
 }

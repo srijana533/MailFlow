@@ -8,7 +8,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -17,11 +16,20 @@ import java.util.List;
  * Polls every 30 seconds for SCHEDULED campaigns whose {@code scheduledAt}
  * has passed and triggers their launch.
  *
+ * <p>Each launch runs in its own transaction ({@link CampaignService#launch(Long)}
+ * is {@code @Transactional}). This method deliberately has no transaction of its
+ * own: with a shared transaction, one failing campaign marked it rollback-only
+ * and rolled back every other launch in the same poll.
+ *
  * <p>Idempotency: the campaign status is changed to QUEUED inside
  * {@link CampaignService#launch(Long)} which uses optimistic locking.
  * Concurrent scheduler instances (e.g. in a multi-pod deployment) will fail
  * the second update with an optimistic-locking exception and safely skip the
  * duplicate launch.
+ *
+ * <p>Deleted campaigns are never launched: the query leaves them out, and a campaign
+ * deleted after the query is rejected by {@code launch} (not found, or the version
+ * check fails when the delete commits first).
  */
 @Slf4j
 @Component
@@ -32,7 +40,6 @@ public class CampaignScheduler {
     private final CampaignService campaignService;
 
     @Scheduled(fixedDelay = 30_000)
-    @Transactional
     public void triggerDueScheduledCampaigns() {
         List<Campaign> due = campaignRepository
                 .findDueScheduledCampaigns(CampaignStatus.SCHEDULED, Instant.now());

@@ -2,7 +2,9 @@ package com.mailflow.batch;
 
 import com.mailflow.campaign.entity.Campaign;
 import com.mailflow.campaign.entity.CampaignRecipient;
+import com.mailflow.campaign.entity.CampaignStatus;
 import com.mailflow.campaign.repository.CampaignRecipientRepository;
+import com.mailflow.campaign.repository.CampaignRepository;
 import com.mailflow.email.UnsubscribeService;
 import com.mailflow.queue.EmailMessage;
 import com.mailflow.recipient.entity.Recipient;
@@ -15,6 +17,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -32,12 +35,15 @@ class CampaignItemProcessorModelTest {
     @Mock private TemplateEngineService templateEngine;
     @Mock private UnsubscribeService unsubscribeService;
     @Mock private CampaignRecipientRepository campaignRecipientRepository;
+    @Mock private CampaignRepository campaignRepository;
 
     @Test
     @SuppressWarnings("unchecked")
     void builds_model_with_custom_fields_and_capitalized_aliases() {
-        CampaignItemProcessor processor =
-                new CampaignItemProcessor(templateEngine, unsubscribeService, campaignRecipientRepository);
+        CampaignItemProcessor processor = new CampaignItemProcessor(
+                templateEngine, unsubscribeService, campaignRecipientRepository, campaignRepository);
+        // The processor only renders while the campaign is RUNNING.
+        when(campaignRepository.findStatusById(10L)).thenReturn(Optional.of(CampaignStatus.RUNNING));
 
         Map<String, String> custom = new HashMap<>();
         custom.put("role", "Engineer");

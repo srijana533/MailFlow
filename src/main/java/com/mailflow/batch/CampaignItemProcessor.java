@@ -3,10 +3,14 @@ package com.mailflow.batch;
 import com.mailflow.campaign.entity.Campaign;
 import com.mailflow.campaign.entity.CampaignRecipient;
 import com.mailflow.campaign.entity.CampaignRecipient.DeliveryStatus;
+import com.mailflow.campaign.entity.CampaignStatus;
 import com.mailflow.campaign.repository.CampaignRecipientRepository;
+import com.mailflow.campaign.repository.CampaignRepository;
 import com.mailflow.email.UnsubscribeService;
 import com.mailflow.queue.EmailMessage;
 import com.mailflow.recipient.entity.Recipient;
+import com.mailflow.template.service.CampaignEmailContent;
+import com.mailflow.template.service.PersonalizationModel;
 import com.mailflow.template.service.TemplateEngineService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,7 +28,21 @@ import java.util.Map;
  * so that Spring Batch's step-scoped lifecycle is correctly applied.
  *
  * <p>Returns {@code null} to skip a recipient (Spring Batch filters nulls
- * from the chunk before the writer sees them).
+ * from the chunk before the writer sees them). Every skip of an unprocessed row
+ * also marks it SKIPPED, so it leaves the reader's result set (see the paging
+ * note in {@link CampaignBatchConfig}).
+ *
+ * <p>A row without a saved contact is a campaign-only address: the email goes to
+ * the row's snapshot email and is personalised from the snapshot values.
+ *
+ * <p>Content: the campaign's own plain-text body when it has one (sent as the
+ * text/plain part, with an HTML part made from the rendered text), otherwise the
+ * template's bodies ({@link CampaignEmailContent}).
+ *
+ * <p>Each item first re-reads the campaign status: once the campaign is no longer
+ * RUNNING (paused, cancelled or deleted), the items the reader had already read for
+ * the current page are not rendered or published. Their rows stay PENDING, like the
+ * rows the reader no longer reads, so a resume picks them up.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -33,21 +51,39 @@ public class CampaignItemProcessor implements ItemProcessor<CampaignRecipient, E
     private final TemplateEngineService templateEngine;
     private final UnsubscribeService unsubscribeService;
     private final CampaignRecipientRepository campaignRecipientRepository;
+    private final CampaignRepository campaignRepository;
 
     @Override
     public EmailMessage process(CampaignRecipient cr) {
-        Recipient recipient = cr.getRecipient();
-        Campaign campaign   = cr.getCampaign();
-
-        // Already sent — skip (idempotency guard for batch restarts)
-        if (cr.getDeliveryStatus() == DeliveryStatus.SENT) {
-            log.debug("Skip already-sent: {}", recipient.getEmail());
+        Campaign campaign = cr.getCampaign();
+        CampaignStatus status = campaignRepository.findStatusById(campaign.getId()).orElse(null);
+        if (status != CampaignStatus.RUNNING) {
+            log.debug("Campaign {} is {}: delivery row {} not processed",
+                    campaign.getId(), status != null ? status : "deleted", cr.getId());
             return null;
         }
 
-        // Unsubscribe check
-        if (unsubscribeService.isUnsubscribed(recipient.getEmail())) {
-            log.debug("Skip unsubscribed: {}", recipient.getEmail());
+        Recipient recipient = cr.getRecipient() != null ? cr.getRecipient() : snapshotRecipient(cr);
+        String toAddress    = recipient.getEmail();
+
+        // Already sent — skip (idempotency guard for batch restarts)
+        if (cr.getDeliveryStatus() == DeliveryStatus.SENT) {
+            log.debug("Skip already-sent: {}", toAddress);
+            return null;
+        }
+
+        // A row always has an address (database CHECK); never send without one.
+        if (toAddress == null || toAddress.isBlank()) {
+            log.warn("Skip delivery row {} without an email address", cr.getId());
+            campaignRecipientRepository.markFailed(
+                    cr.getIdempotencyKey(), DeliveryStatus.SKIPPED,
+                    Instant.now(), "No email address");
+            return null;
+        }
+
+        // Unsubscribe check (by address, so it covers campaign-only addresses too)
+        if (unsubscribeService.isUnsubscribed(toAddress)) {
+            log.debug("Skip unsubscribed: {}", toAddress);
             campaignRecipientRepository.markFailed(
                     cr.getIdempotencyKey(), DeliveryStatus.SKIPPED,
                     Instant.now(), "Unsubscribed");
@@ -57,87 +93,54 @@ public class CampaignItemProcessor implements ItemProcessor<CampaignRecipient, E
         // Build personalisation model
         Map<String, Object> model = buildModel(recipient);
 
-        String personalizedSubject = templateEngine.render(campaign.getSubject(), model);
-        String htmlBody  = "";
-        String plainBody = "";
-
-        if (campaign.getTemplate() != null) {
-            htmlBody  = templateEngine.render(
-                    nvl(campaign.getTemplate().getHtmlBody()), model);
-            plainBody = templateEngine.render(
-                    nvl(campaign.getTemplate().getPlainBody()), model);
-        }
+        // The campaign's own body when it has one (plain text, plus an HTML part made
+        // from the rendered text), otherwise the template's bodies. Without either,
+        // both bodies are "". The preview endpoint renders through the same method.
+        CampaignEmailContent.Rendered email = CampaignEmailContent.render(
+                templateEngine, model, campaign.getSubject(), campaign.getCustomBody(),
+                campaign.getTemplate() != null ? nvl(campaign.getTemplate().getHtmlBody()) : null,
+                campaign.getTemplate() != null ? nvl(campaign.getTemplate().getPlainBody()) : null);
 
         return EmailMessage.builder()
                 .idempotencyKey(cr.getIdempotencyKey())
                 .campaignId(campaign.getId())
-                .recipientId(recipient.getId())
-                .toAddress(recipient.getEmail())
+                .recipientId(cr.getRecipient() != null ? cr.getRecipient().getId() : null)
+                .toAddress(toAddress)
                 .senderName(campaign.getSenderName())
                 .senderEmail(campaign.getSenderEmail())
                 .replyTo(campaign.getReplyTo())
-                .subject(personalizedSubject)
-                .htmlBody(htmlBody)
-                .plainBody(plainBody)
+                .subject(email.subject())
+                .htmlBody(email.htmlBody())
+                .plainBody(email.plainBody())
                 .attemptNumber(cr.getRetryCount() + 1)
                 .createdAt(Instant.now())
                 .build();
     }
 
+    /**
+     * Builds the personalisation model. Delegates to {@link PersonalizationModel}
+     * so the template render-preview endpoint resolves placeholders exactly the
+     * same way as a real send.
+     */
     private Map<String, Object> buildModel(Recipient recipient) {
-        Map<String, Object> model = new HashMap<>();
-
-        // Standard column fields (lower-camel keys).
-        model.put("name",      nvl(recipient.getName()));
-        model.put("email",     recipient.getEmail());
-        model.put("firstName", nvl(recipient.getFirstName()));
-        model.put("lastName",  nvl(recipient.getLastName()));
-        model.put("company",   nvl(recipient.getCompany()));
-        model.put("course",    nvl(recipient.getCourse()));
-
-        // Custom fields (role, phone, location, interest, …) stored in JSONB.
-        // Added before the aliases so canonical names below take precedence
-        // if a custom field happened to collide.
-        if (recipient.getCustomFields() != null) {
-            model.putAll(recipient.getCustomFields());
-        }
-
-        // Capitalised aliases so templates can use {{Name}}, {{Company}},
-        // {{Role}}, {{Location}}, {{Interest}} etc. in addition to the
-        // lower-camel keys. Missing values resolve to a safe empty string.
-        putAlias(model, "Name",      "name");
-        putAlias(model, "Email",     "email");
-        putAlias(model, "FirstName", "firstName");
-        putAlias(model, "LastName",  "lastName");
-        putAlias(model, "Company",   "company");
-        putAlias(model, "Course",    "course");
-
-        // Extended custom fields: expose both the raw key and a capitalised alias.
-        ensureCustom(model, "role",      "Role");
-        ensureCustom(model, "phone",     "Phone");
-        ensureCustom(model, "location",  "Location");
-        ensureCustom(model, "interest",  "Interest");
-        ensureCustom(model, "department","Department");
-
-        return model;
-    }
-
-    /** Copies the value at {@code sourceKey} to {@code aliasKey} (empty if absent). */
-    private void putAlias(Map<String, Object> model, String aliasKey, String sourceKey) {
-        Object v = model.get(sourceKey);
-        model.put(aliasKey, v != null ? v : "");
+        return PersonalizationModel.forRecipient(recipient);
     }
 
     /**
-     * Ensures a custom field is present under both its lower-case key and a
-     * capitalised alias, defaulting to empty string so {{Role}} etc. never
-     * fail template rendering.
+     * A transient Recipient carrying a campaign-only address's snapshot, so the
+     * same {@link PersonalizationModel} builds its merge variables. It is never
+     * attached to the row or persisted.
      */
-    private void ensureCustom(Map<String, Object> model, String lowerKey, String aliasKey) {
-        Object v = model.get(lowerKey);
-        String safe = v != null ? v.toString() : "";
-        model.put(lowerKey, safe);
-        model.put(aliasKey, safe);
+    private static Recipient snapshotRecipient(CampaignRecipient cr) {
+        return Recipient.builder()
+                .email(cr.getSnapshotEmail())
+                .name(cr.getSnapshotName())
+                .firstName(cr.getSnapshotFirstName())
+                .lastName(cr.getSnapshotLastName())
+                .company(cr.getSnapshotCompany())
+                .customFields(cr.getSnapshotCustomFields() != null
+                        ? new HashMap<>(cr.getSnapshotCustomFields()) : new HashMap<>())
+                .build();
     }
 
     private String nvl(String s) { return s != null ? s : ""; }

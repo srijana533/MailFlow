@@ -1,6 +1,8 @@
 package com.mailflow.queue;
 
 import com.mailflow.analytics.EmailLogService;
+import com.mailflow.campaign.entity.Campaign;
+import com.mailflow.campaign.entity.CampaignStatus;
 import com.mailflow.campaign.repository.CampaignRecipientRepository;
 import com.mailflow.campaign.repository.CampaignRepository;
 import com.mailflow.campaign.entity.CampaignRecipient.DeliveryStatus;
@@ -31,6 +33,13 @@ import java.util.concurrent.TimeUnit;
  * <p>Permanent failures (5xx SMTP rejection) are caught and recorded; the
  * message is acked so it is not infinitely redelivered.  Temporary failures
  * propagate up to the retry interceptor.
+ *
+ * <p>Campaign status: before sending, the consumer reads the campaign's current
+ * status. A message of a PAUSED campaign is not sent; its record goes back to
+ * PENDING so that resuming publishes it again. A message of a CANCELLED, deleted
+ * (or no longer existing) campaign is not sent; its record is marked SKIPPED with
+ * the reason. A message whose status was read just before a pause, cancel or delete
+ * is still sent.
  */
 @Slf4j
 @Component
@@ -57,6 +66,11 @@ public class EmailConsumer {
         // ── Idempotency guard ──────────────────────────────────────────
         if (Boolean.TRUE.equals(redisTemplate.hasKey(redisKey))) {
             log.debug("Duplicate suppressed: {}", message.idempotencyKey());
+            return;
+        }
+
+        // ── Campaign still sending? ────────────────────────────────────
+        if (!mayStillSend(message)) {
             return;
         }
 
@@ -105,5 +119,41 @@ public class EmailConsumer {
         }
         // Temporary exceptions (MailException, ConnectException, RateLimitExceededException)
         // propagate up to the retry interceptor which requeues with exponential backoff.
+    }
+
+    /**
+     * Whether this message may be sent now. For a paused campaign the record goes
+     * back to PENDING; for a cancelled, deleted or missing campaign it is marked
+     * SKIPPED with the reason. Either way the message is acked without sending.
+     */
+    private boolean mayStillSend(EmailMessage message) {
+        // Empty for a deleted campaign as well as for one that doesn't exist.
+        CampaignStatus status = campaignRepository.findStatusById(message.campaignId()).orElse(null);
+
+        if (status == CampaignStatus.PAUSED) {
+            // Re-read under a row lock: a resume committing in between either finished
+            // first (then the status is no longer PAUSED and the email is sent) or waits
+            // until this record is PENDING again, so the resumed job reads it.
+            status = campaignRepository.findByIdForUpdate(message.campaignId())
+                    .filter(c -> !c.isDeleted())
+                    .map(Campaign::getStatus).orElse(null);
+            if (status == CampaignStatus.PAUSED) {
+                campaignRecipientRepository.returnQueuedToPending(message.idempotencyKey());
+                log.info("Campaign {} is paused: email not sent, back to pending (key={})",
+                        message.campaignId(), message.idempotencyKey());
+                return false;
+            }
+        }
+
+        if (status == null || status == CampaignStatus.CANCELLED) {
+            String reason = status == CampaignStatus.CANCELLED ? "Campaign cancelled"
+                    : campaignRepository.existsById(message.campaignId()) ? "Campaign deleted"
+                    : "Campaign no longer exists";
+            campaignRecipientRepository.skipQueued(message.idempotencyKey(), Instant.now(), reason);
+            log.info("Email not sent: {} (campaign={}, key={})",
+                    reason, message.campaignId(), message.idempotencyKey());
+            return false;
+        }
+        return true;
     }
 }

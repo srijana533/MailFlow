@@ -1,6 +1,7 @@
 package com.mailflow.email;
 
 import com.mailflow.common.exception.ResourceNotFoundException;
+import com.mailflow.common.util.EmailValidator;
 import com.mailflow.common.util.SlugUtils;
 import com.mailflow.email.entity.UnsubscribeEntry;
 import com.mailflow.email.repository.UnsubscribeRepository;
@@ -16,6 +17,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 
+/**
+ * The unsubscribe list. Addresses are normalised ({@link EmailValidator#normalize})
+ * before they are stored, looked up or used as a cache key, so an unsubscribe made
+ * with different case or surrounding whitespace still matches the address used
+ * when sending.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -24,23 +31,24 @@ public class UnsubscribeService {
     private final UnsubscribeRepository unsubscribeRepository;
     private final RecipientRepository recipientRepository;
 
-    @Cacheable(value = "unsubscribed", key = "#email.toLowerCase()")
+    @Cacheable(value = "unsubscribed", key = "T(com.mailflow.common.util.EmailValidator).normalize(#email)")
     public boolean isUnsubscribed(String email) {
-        return unsubscribeRepository.existsByEmailIgnoreCase(email);
+        return unsubscribeRepository.existsByEmailIgnoreCase(EmailValidator.normalize(email));
     }
 
     @Transactional
-    @CacheEvict(value = "unsubscribed", key = "#email.toLowerCase()")
+    @CacheEvict(value = "unsubscribed", key = "T(com.mailflow.common.util.EmailValidator).normalize(#email)")
     public String unsubscribe(String email, String reason, Long campaignId) {
-        if (unsubscribeRepository.existsByEmailIgnoreCase(email)) {
+        String normalized = EmailValidator.normalize(email);
+        if (unsubscribeRepository.existsByEmailIgnoreCase(normalized)) {
             // Already unsubscribed — idempotent
-            return unsubscribeRepository.findByEmailIgnoreCase(email)
+            return unsubscribeRepository.findByEmailIgnoreCase(normalized)
                     .map(UnsubscribeEntry::getToken).orElse("");
         }
 
         String token = SlugUtils.generateToken();
         unsubscribeRepository.save(UnsubscribeEntry.builder()
-                .email(email.toLowerCase())
+                .email(normalized)
                 .token(token)
                 .reason(reason)
                 .unsubscribedAt(Instant.now())
@@ -48,12 +56,12 @@ public class UnsubscribeService {
                 .build());
 
         // Also update recipient status
-        recipientRepository.findByEmailIgnoreCaseAndDeletedAtIsNull(email).ifPresent(r -> {
+        recipientRepository.findByEmailIgnoreCaseAndDeletedAtIsNull(normalized).ifPresent(r -> {
             r.setStatus(RecipientStatus.UNSUBSCRIBED);
             recipientRepository.save(r);
         });
 
-        log.info("Unsubscribed: {}", email);
+        log.info("Unsubscribed: {}", normalized);
         return token;
     }
 

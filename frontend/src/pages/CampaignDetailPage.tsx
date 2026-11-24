@@ -1,21 +1,30 @@
 import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
   ArrowLeft, Users, CheckCircle2, XCircle, SkipForward, Gauge, Clock, RefreshCw, Mail,
-  Send, AlertTriangle, Loader2,
+  Send, AlertTriangle, Loader2, Pencil, Trash2,
 } from 'lucide-react';
 import { RadialBarChart, RadialBar, ResponsiveContainer, PolarAngleAxis } from 'recharts';
 import { campaignsApi } from '../api/campaigns';
 import type { Campaign, CampaignAnalytics, CampaignStatus } from '../types';
 import { Card, StatusBadge, LoadingState, Button, Modal } from '../components/ui';
+import { CampaignFormModal } from '../components/CampaignFormModal';
+import { DeleteCampaignModal } from '../components/DeleteCampaignModal';
 import { useAuthStore } from '../store/authStore';
+import {
+  campaignOnlyCount, deleteBlockers, joinBlockers, launchBlockers, selectedRecipientCount,
+} from '../lib/campaignChecks';
+import { apiErrorMessage, apiErrorStatus, isForbidden } from '../lib/errors';
+import { canManage, noPermissionMessage } from '../lib/roles';
+
+/** Retry failed loads, except a 404: a deleted or unknown campaign won't come back. */
+const retryUnlessNotFound = (failureCount: number, error: unknown) =>
+  apiErrorStatus(error) !== 404 && failureCount < 3;
 
 /** Statuses during which the backend is actively processing — poll for updates. */
 const ACTIVE_STATUSES: CampaignStatus[] = ['QUEUED', 'RUNNING'];
-/** Roles permitted to launch a campaign. */
-const SENDER_ROLES = ['ADMIN', 'CAMPAIGN_MANAGER'];
 /** Statuses from which a campaign can be launched. */
 const LAUNCHABLE: CampaignStatus[] = ['DRAFT', 'SCHEDULED'];
 
@@ -58,12 +67,17 @@ export default function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>();
   const campaignId = Number(id);
   const queryClient = useQueryClient();
-  const { user } = useAuthStore();
+  // Only admins and campaign managers may edit or launch (roles also survive a page reload).
+  const canSend = useAuthStore((s) => canManage(s.roles));
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const navigate = useNavigate();
 
-  const { data: campaign, isLoading } = useQuery<Campaign>({
+  const { data: campaign, isLoading, error: loadError } = useQuery<Campaign>({
     queryKey: ['campaign', campaignId],
     queryFn: () => campaignsApi.getById(campaignId),
+    retry: retryUnlessNotFound,
     // Poll while the campaign is being processed so progress updates live.
     refetchInterval: (query) => {
       const c = query.state.data as Campaign | undefined;
@@ -76,6 +90,7 @@ export default function CampaignDetailPage() {
   const { data: analytics } = useQuery<CampaignAnalytics>({
     queryKey: ['campaign-analytics', campaignId],
     queryFn: () => campaignsApi.getAnalytics(campaignId),
+    retry: retryUnlessNotFound,
     // Keep analytics in step with the campaign poll.
     refetchInterval: isActive ? 3000 : false,
   });
@@ -83,25 +98,48 @@ export default function CampaignDetailPage() {
   const launchMutation = useMutation({
     mutationFn: () => campaignsApi.launch(campaignId),
     onSuccess: () => {
-      toast.success('Campaign launched — sending in progress');
+      // Same toast id for success and failure: repeated clicks never stack notifications.
+      toast.success('Campaign launched. Sending in progress.', { id: `campaign-action-${campaignId}` });
       setConfirmOpen(false);
       queryClient.invalidateQueries({ queryKey: ['campaign', campaignId] });
       queryClient.invalidateQueries({ queryKey: ['campaign-analytics', campaignId] });
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
     },
     onError: (e: unknown) => {
-      const msg =
-        (e as { response?: { data?: { message?: string } } }).response?.data?.message ??
-        'Failed to launch campaign';
-      toast.error(msg);
+      toast.error(
+        isForbidden(e) ? noPermissionMessage('launch campaigns') : apiErrorMessage(e, 'Failed to launch campaign'),
+        { id: `campaign-action-${campaignId}` },
+      );
     },
   });
 
-  const canSend = (user?.roles ?? []).some((r) => SENDER_ROLES.includes(r));
-
-  if (isLoading || !campaign) {
+  if (isLoading) {
     return (
       <div className="page">
         <LoadingState label="Loading campaign…" />
+      </div>
+    );
+  }
+
+  if (!campaign) {
+    // A deleted (or unknown) campaign answers 404.
+    const notFound = apiErrorStatus(loadError) === 404;
+    return (
+      <div className="page">
+        <Link
+          to="/campaigns"
+          className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition hover:text-slate-700"
+        >
+          <ArrowLeft className="h-4 w-4" /> Back to campaigns
+        </Link>
+        <Card>
+          <p className="font-semibold text-slate-900">{notFound ? 'Campaign not found' : 'Could not load the campaign'}</p>
+          <p className="mt-1 text-sm text-slate-500">
+            {notFound
+              ? "It doesn't exist or it was deleted."
+              : apiErrorMessage(loadError, 'Please try again in a moment.')}
+          </p>
+        </Card>
       </div>
     );
   }
@@ -110,6 +148,18 @@ export default function CampaignDetailPage() {
   const progress = campaign.totalRecipients > 0 ? (processed / campaign.totalRecipients) * 100 : 0;
   const successRate = analytics?.successRate ?? campaign.successRate ?? 0;
   const radialData = [{ name: 'Success', value: Math.round(successRate), fill: '#2563eb' }];
+  const isDraft = campaign.status === 'DRAFT';
+  const blockers = launchBlockers(campaign);
+  const deleteReasons = deleteBlockers(campaign);
+  const selectedCount = selectedRecipientCount(campaign);
+  const onlyCount = campaignOnlyCount(campaign);
+  const groupCount = campaign.recipientGroupIds?.length ?? 0;
+  // The campaign's own body wins over its template when it has one.
+  const contentLabel = campaign.customBody?.trim()
+    ? 'Written for this campaign'
+    : campaign.templateName
+    ? `Template: ${campaign.templateName}`
+    : 'None yet';
 
   return (
     <div className="page">
@@ -136,14 +186,106 @@ export default function CampaignDetailPage() {
           <p className="mt-1 text-sm text-slate-500">{campaign.subject}</p>
         </div>
 
-        {/* Launch action */}
-        {LAUNCHABLE.includes(campaign.status) && canSend && (
-          <Button onClick={() => setConfirmOpen(true)} disabled={launchMutation.isPending}>
-            <Send className="h-4 w-4" />
-            Launch campaign
-          </Button>
+        {/* Actions. Email content, subject, sender email and recipients are required to launch;
+            the button is disabled with one inline, actionable hint instead of letting
+            the backend reject the launch with an error toast. Delete is offered in every
+            status and disabled, with the reason, while the campaign is sending. */}
+        {canSend && (
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-2">
+              {isDraft && (
+                <Button variant="secondary" onClick={() => setEditOpen(true)} disabled={launchMutation.isPending}>
+                  <Pencil className="h-4 w-4" />
+                  Edit draft
+                </Button>
+              )}
+              {LAUNCHABLE.includes(campaign.status) && (
+                <Button
+                  onClick={() => setConfirmOpen(true)}
+                  disabled={launchMutation.isPending || blockers.length > 0}
+                >
+                  <Send className="h-4 w-4" />
+                  Launch campaign
+                </Button>
+              )}
+              <Button
+                variant="secondary"
+                className="text-red-600 hover:text-red-700"
+                onClick={() => setDeleteOpen(true)}
+                disabled={launchMutation.isPending || deleteReasons.length > 0}
+                title={deleteReasons[0]}
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </Button>
+            </div>
+            {LAUNCHABLE.includes(campaign.status) && blockers.length > 0 && (
+              <p className="flex items-center gap-1 text-xs text-amber-600">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Before launching, {joinBlockers(blockers)}{isDraft ? ' (Edit draft)' : ''}.
+              </p>
+            )}
+            {deleteReasons.length > 0 && (
+              <p className="max-w-sm text-right text-xs text-slate-500">{deleteReasons[0]}</p>
+            )}
+          </div>
         )}
       </div>
+
+      {/* What the draft will send: shown before launch, when the counters are still 0. */}
+      {isDraft && (
+        <Card className="mb-6">
+          <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
+            <div>
+              <dt className="text-xs text-slate-500">Content</dt>
+              <dd className="font-medium text-slate-800">{contentLabel}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-500">Recipients selected</dt>
+              <dd className="font-medium tabular-nums text-slate-800">
+                {selectedCount.toLocaleString()}
+                {groupCount > 0 && <span className="text-xs font-normal text-slate-500"> + {groupCount} group{groupCount === 1 ? '' : 's'}</span>}
+                {onlyCount > 0 && (
+                  <span className="block text-xs font-normal text-slate-500" title="Stored with this campaign, not saved as contacts">
+                    incl. {onlyCount.toLocaleString()} campaign-only
+                  </span>
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-500">Sender</dt>
+              <dd className="truncate font-medium text-slate-800">
+                {campaign.senderEmail ? `${campaign.senderName ? `${campaign.senderName} ` : ''}<${campaign.senderEmail}>` : 'Not set'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-500">Reply-to</dt>
+              <dd className="truncate font-medium text-slate-800">{campaign.replyTo || 'Not set'}</dd>
+            </div>
+          </dl>
+        </Card>
+      )}
+
+      {/* Edit a draft (template, recipients, details) */}
+      {isDraft && (
+        <CampaignFormModal
+          open={editOpen}
+          campaign={campaign}
+          onClose={() => setEditOpen(false)}
+          onSaved={(saved) => {
+            queryClient.setQueryData(['campaign', campaignId], saved);
+            queryClient.invalidateQueries({ queryKey: ['campaign', campaignId] });
+            queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+          }}
+        />
+      )}
+
+      {/* Delete confirmation; afterwards the campaign is gone, so go back to the list */}
+      <DeleteCampaignModal
+        campaign={canSend && deleteOpen ? campaign : null}
+        onClose={() => setDeleteOpen(false)}
+        onDeleted={() => navigate('/campaigns', { replace: true })}
+      />
 
       {/* Pre-send confirmation */}
       <Modal
@@ -171,28 +313,34 @@ export default function CampaignDetailPage() {
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
             <p className="text-sm text-amber-800">
               You are about to send <b>{campaign.name}</b> to its recipients. Make sure the
-              subject, template and recipient list are correct.
+              subject, content and recipient list are correct.
             </p>
           </div>
           <dl className="grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-lg bg-slate-50 px-3 py-2">
-              <dt className="text-xs text-slate-500">Recipients</dt>
+              <dt className="text-xs text-slate-500">Recipients selected</dt>
               <dd className="text-lg font-bold tabular-nums text-slate-900">
-                {campaign.totalRecipients.toLocaleString()}
+                {selectedCount.toLocaleString()}
+                {groupCount > 0 && <span className="text-xs font-normal text-slate-500"> + {groupCount} group{groupCount === 1 ? '' : 's'}</span>}
+                {onlyCount > 0 && (
+                  <span className="block text-xs font-normal text-slate-500">incl. {onlyCount.toLocaleString()} campaign-only</span>
+                )}
               </dd>
             </div>
             <div className="rounded-lg bg-slate-50 px-3 py-2">
               <dt className="text-xs text-slate-500">Subject</dt>
               <dd className="truncate text-sm font-medium text-slate-700">{campaign.subject}</dd>
             </div>
+            <div className="col-span-2 rounded-lg bg-slate-50 px-3 py-2">
+              <dt className="text-xs text-slate-500">Content</dt>
+              <dd className="truncate text-sm font-medium text-slate-700">{contentLabel}</dd>
+            </div>
           </dl>
-          {campaign.totalRecipients === 0 && (
-            <p className="flex items-center gap-1.5 text-xs text-red-600">
-              <AlertTriangle className="h-3.5 w-3.5" />
-              This campaign has no recipients attached. Resolution will fall back to all active
-              recipients.
-            </p>
-          )}
+          <p className="text-xs text-slate-500">
+            Unsubscribed, bounced or deleted contacts are skipped, and so are unsubscribed addresses. A campaign-only
+            address that has since become a saved contact is sent to that contact. The final number of emails is shown
+            once the campaign starts.
+          </p>
         </div>
       </Modal>
 

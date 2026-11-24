@@ -39,6 +39,12 @@ public class RabbitMQConfig {
     public static final String EMAIL_ROUTING_KEY    = "email.send";
     public static final String EMAIL_DL_ROUTING_KEY = "email.dead";
 
+    /**
+     * Message TTL of {@code email.queue} (24 h). A delivery row QUEUED longer ago
+     * can't have a message left in the queue; campaign deletion relies on that.
+     */
+    public static final int EMAIL_QUEUE_MESSAGE_TTL_MS = 86_400_000;
+
     // ── Exchanges ──────────────────────────────────────────────────────────
     @Bean
     public DirectExchange emailExchange() {
@@ -60,7 +66,7 @@ public class RabbitMQConfig {
         return QueueBuilder.durable(EMAIL_QUEUE)
                 .withArgument("x-dead-letter-exchange", EMAIL_DL_EXCHANGE)
                 .withArgument("x-dead-letter-routing-key", EMAIL_DL_ROUTING_KEY)
-                .withArgument("x-message-ttl", 86_400_000) // 24h TTL
+                .withArgument("x-message-ttl", EMAIL_QUEUE_MESSAGE_TTL_MS) // 24h TTL
                 .build();
     }
 

@@ -1,7 +1,10 @@
 package com.mailflow.template.controller;
 
 import com.mailflow.common.dto.PageResponse;
+import com.mailflow.template.dto.TemplateContentRenderRequest;
 import com.mailflow.template.dto.TemplatePreviewRequest;
+import com.mailflow.template.dto.TemplateRenderRequest;
+import com.mailflow.template.dto.TemplateRenderResponse;
 import com.mailflow.template.dto.TemplateRequest;
 import com.mailflow.template.dto.TemplateResponse;
 import com.mailflow.template.service.TemplateService;
@@ -76,5 +79,30 @@ public class TemplateController {
             @PathVariable Long id,
             @RequestBody TemplatePreviewRequest request) {
         return ResponseEntity.ok(templateService.preview(id, request.variables()));
+    }
+
+    @PostMapping("/{id}/render")
+    @PreAuthorize("hasAnyRole('ADMIN','CAMPAIGN_MANAGER')")
+    @Operation(summary = "Render a template for one recipient (personalised preview)",
+               description = "Uses the same personalisation model as a real campaign send. "
+                           + "The recipient is supplied inline and nothing is saved.")
+    public ResponseEntity<TemplateRenderResponse> renderForRecipient(
+            @PathVariable Long id,
+            @Valid @RequestBody TemplateRenderRequest request) {
+        return ResponseEntity.ok(templateService.renderForRecipient(id, request));
+    }
+
+    @PostMapping("/render")
+    @PreAuthorize("hasAnyRole('ADMIN','CAMPAIGN_MANAGER')")
+    @Operation(summary = "Render unsaved template content for a sample recipient",
+               description = "Preview while a template is created or edited. Renders the supplied subject, "
+                           + "HTML body and plain-text body with the same personalisation model and template "
+                           + "engine as a real campaign send, and returns the same shape as "
+                           + "POST /api/templates/{id}/render. Nothing is saved. Limits: subject 1,000 "
+                           + "characters; each body 500,000 characters; at most 50 custom fields, with keys "
+                           + "up to 40 and values up to 1,000 characters.")
+    public ResponseEntity<TemplateRenderResponse> renderContent(
+            @Valid @RequestBody TemplateContentRenderRequest request) {
+        return ResponseEntity.ok(templateService.renderContent(request));
     }
 }

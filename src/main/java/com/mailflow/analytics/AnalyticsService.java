@@ -27,9 +27,11 @@ public class AnalyticsService {
     private final EmailLogRepository emailLogRepository;
     private final RecipientRepository recipientRepository;
 
+    /** Analytics of one campaign; 404 for a deleted campaign, like GET /api/campaigns/{id}. */
     @Transactional(readOnly = true)
     public CampaignAnalytics getCampaignAnalytics(Long campaignId) {
         Campaign campaign = campaignRepository.findById(campaignId)
+                .filter(c -> !c.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("Campaign", campaignId));
 
         // Aggregate from email_logs for accurate counts
@@ -58,9 +60,10 @@ public class AnalyticsService {
         );
     }
 
+    /** Totals over the campaigns that are not deleted; the contact count is unaffected. */
     @Transactional(readOnly = true)
     public DashboardSummary getDashboardSummary() {
-        List<Campaign> all = campaignRepository.findAll();
+        List<Campaign> all = campaignRepository.findByDeletedAtIsNull();
 
         long totalCampaigns  = all.size();
         long activeCampaigns = all.stream()
