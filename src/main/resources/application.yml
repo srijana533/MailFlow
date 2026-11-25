@@ -122,11 +122,8 @@ spring:
             # over an un-encrypted channel — mandatory for Gmail on 587.
             enable: ${SMTP_TLS:false}
             required: ${SMTP_TLS:false}
-          # Trust host for the STARTTLS handshake. Leave empty for MailHog;
-          # set SMTP_SSL_TRUST=smtp.gmail.com for Gmail if the runtime JVM
-          # trust store needs an explicit allow. Empty = use default trust.
-          ssl:
-            trust: ${SMTP_SSL_TRUST:}
+          # mail.smtp.ssl.trust is set only when SMTP_SSL_TRUST has a value (see
+          # SmtpSslTrustConfig): an empty value would make Jakarta Mail trust no server.
           # Timeouts (ms). Gmail can be slower than a local MailHog, so the
           # defaults are generous but overridable per environment.
           connectiontimeout: ${SMTP_CONNECTION_TIMEOUT_MS:10000}
