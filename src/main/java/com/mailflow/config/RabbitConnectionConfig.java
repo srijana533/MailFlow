@@ -42,11 +42,14 @@ public class RabbitConnectionConfig {
     @Primary
     public CachingConnectionFactory cachingConnectionFactory() {
         ConnectionFactory rabbitFactory = new ConnectionFactory();
-        rabbitFactory.setHost(host);
+        // Values pasted into a hosting dashboard often carry a stray space, tab or line
+        // break, which makes the host name unresolvable; none of these values can
+        // legitimately start or end with whitespace.
+        rabbitFactory.setHost(clean(host));
         rabbitFactory.setPort(port);
-        rabbitFactory.setUsername(username);
-        rabbitFactory.setPassword(password);
-        rabbitFactory.setVirtualHost(virtualHost);
+        rabbitFactory.setUsername(clean(username));
+        rabbitFactory.setPassword(clean(password));
+        rabbitFactory.setVirtualHost(clean(virtualHost));
         if (ssl) {
             try {
                 // The JVM's default trust store, with hostname verification: the
@@ -69,7 +72,11 @@ public class RabbitConnectionConfig {
         ccf.setPublisherConfirmType(CachingConnectionFactory.ConfirmType.NONE);
 
         log.info("RabbitMQ connection factory configured: {}:{} (lazy — connects on first use)",
-                host, port);
+                clean(host), port);
         return ccf;
+    }
+
+    static String clean(String value) {
+        return value == null ? null : value.strip();
     }
 }
