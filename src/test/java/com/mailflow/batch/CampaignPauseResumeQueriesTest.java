@@ -62,7 +62,7 @@ class CampaignPauseResumeQueriesTest {
         try (Connection c = DriverManager.getConnection(URL, "sa", "");
              Statement s = c.createStatement()) {
             s.execute("""
-                    CREATE TABLE campaigns (
+                    CREATE TABLE campaigns (organization_id BIGINT, 
                         id BIGINT PRIMARY KEY, name VARCHAR(255) NOT NULL, description VARCHAR(1000),
                         subject VARCHAR(1000) NOT NULL, template_id BIGINT, sender_name VARCHAR(255),
                         sender_email VARCHAR(255), reply_to VARCHAR(255), status VARCHAR(50) NOT NULL,
@@ -76,7 +76,7 @@ class CampaignPauseResumeQueriesTest {
                         deleted_at TIMESTAMP WITH TIME ZONE, deleted_by BIGINT,
                         custom_body VARCHAR(100000))""");
             s.execute("""
-                    CREATE TABLE recipients (
+                    CREATE TABLE recipients (organization_id BIGINT, 
                         id BIGINT PRIMARY KEY, email VARCHAR(255) NOT NULL, name VARCHAR(255),
                         first_name VARCHAR(100), last_name VARCHAR(100), company VARCHAR(255),
                         course VARCHAR(255), custom_fields JSON, status VARCHAR(50) NOT NULL,
@@ -99,10 +99,11 @@ class CampaignPauseResumeQueriesTest {
                 .applySetting("hibernate.connection.username", "sa")
                 .applySetting("hibernate.connection.password", "")
                 .applySetting("hibernate.hbm2ddl.auto", "none")
+                .applySetting("hibernate.tenant_identifier_resolver", new com.mailflow.tenant.TenantIdentifierResolver())
                 .build();
         sessionFactory = new MetadataSources(registry)
                 .addAnnotatedClasses(Campaign.class, CampaignRecipient.class, CampaignTargetAddress.class,
-                        Recipient.class, EmailTemplate.class, User.class, Role.class)
+                        Recipient.class, EmailTemplate.class, User.class, Role.class, com.mailflow.organization.entity.Organization.class)
                 .buildMetadata()
                 .buildSessionFactory();
     }

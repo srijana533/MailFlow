@@ -9,8 +9,18 @@ import lombok.Setter;
 
 import java.time.Instant;
 
+/**
+ * An address that opted out of one organization's emails. Opting out of one
+ * company does not block another company from emailing the same address.
+ *
+ * <p>The organization is an explicit column, not a Hibernate tenant filter: entries
+ * are read and written by the batch job and by public unsubscribe links, which have
+ * no signed-in user. Every query passes the organization.
+ */
 @Entity
-@Table(name = "unsubscribe_list")
+@Table(name = "unsubscribe_list",
+       uniqueConstraints = @UniqueConstraint(name = "uq_unsubscribe_org_email",
+                                             columnNames = {"organization_id", "email"}))
 @Getter
 @Setter
 @NoArgsConstructor
@@ -22,7 +32,10 @@ public class UnsubscribeEntry {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true)
+    @Column(name = "organization_id", nullable = false, updatable = false)
+    private Long organizationId;
+
+    @Column(nullable = false)
     private String email;
 
     @Column(nullable = false, unique = true)

@@ -36,7 +36,7 @@ public class RecipientGroupService {
                 .build();
 
         if (request.recipientIds() != null && !request.recipientIds().isEmpty()) {
-            List<Recipient> recipients = recipientRepository.findAllById(request.recipientIds());
+            List<Recipient> recipients = recipientRepository.findByIdInAndDeletedAtIsNull(request.recipientIds());
             group.getRecipients().addAll(recipients);
         }
 
@@ -63,7 +63,7 @@ public class RecipientGroupService {
 
         if (request.recipientIds() != null) {
             group.getRecipients().clear();
-            List<Recipient> recipients = recipientRepository.findAllById(request.recipientIds());
+            List<Recipient> recipients = recipientRepository.findByIdInAndDeletedAtIsNull(request.recipientIds());
             group.getRecipients().addAll(recipients);
         }
 
@@ -79,7 +79,7 @@ public class RecipientGroupService {
     @Transactional
     public RecipientGroupResponse addMember(Long groupId, Long recipientId) {
         RecipientGroup group = getOrThrow(groupId);
-        Recipient recipient = recipientRepository.findById(recipientId)
+        Recipient recipient = recipientRepository.findByIdAndDeletedAtIsNull(recipientId)
                 .orElseThrow(() -> new ResourceNotFoundException("Recipient", recipientId));
         group.getRecipients().add(recipient);
         return toResponse(groupRepository.save(group));
@@ -105,7 +105,7 @@ public class RecipientGroupService {
     }
 
     public RecipientGroup getOrThrow(Long id) {
-        return groupRepository.findById(id)
+        return groupRepository.findOneById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("RecipientGroup", id));
     }
 

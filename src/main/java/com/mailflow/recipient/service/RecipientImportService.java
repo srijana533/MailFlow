@@ -565,13 +565,13 @@ public class RecipientImportService {
         Set<String> deleted = new HashSet<>();
         Set<String> unsubscribed = new HashSet<>();
         if (!candidates.isEmpty()) {
-            for (Recipient rec : recipientRepository.findByEmailIn(candidates)) {
+            for (Recipient rec : recipientRepository.findByEmailIn(com.mailflow.tenant.TenantContext.requireOrganizationId(), candidates)) {
                 saved.put(EmailValidator.normalize(rec.getEmail()), rec);
             }
-            for (String e : recipientRepository.findDeletedEmails(candidates)) {
+            for (String e : recipientRepository.findDeletedEmails(com.mailflow.tenant.TenantContext.requireOrganizationId(), candidates)) {
                 deleted.add(EmailValidator.normalize(e));
             }
-            for (String e : unsubscribeRepository.findEmailsIn(candidates)) {
+            for (String e : unsubscribeRepository.findEmailsIn(com.mailflow.tenant.TenantContext.requireOrganizationId(), candidates)) {
                 unsubscribed.add(EmailValidator.normalize(e));
             }
         }
@@ -808,13 +808,13 @@ public class RecipientImportService {
 
         List<String> emails = new ArrayList<>(byEmail.keySet());
         Map<String, Recipient> existing = new HashMap<>();
-        for (Recipient r : recipientRepository.findByEmailIn(emails)) {
+        for (Recipient r : recipientRepository.findByEmailIn(com.mailflow.tenant.TenantContext.requireOrganizationId(), emails)) {
             existing.put(EmailValidator.normalize(r.getEmail()), r);
         }
         // The email column is unique across live AND soft-deleted rows. Deleted
         // contacts are neither reactivated nor re-created (an insert would fail).
         Set<String> deleted = new HashSet<>();
-        for (String e : recipientRepository.findDeletedEmails(emails)) {
+        for (String e : recipientRepository.findDeletedEmails(com.mailflow.tenant.TenantContext.requireOrganizationId(), emails)) {
             deleted.add(EmailValidator.normalize(e));
         }
 

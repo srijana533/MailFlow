@@ -13,7 +13,8 @@ import java.util.Optional;
 
 public interface RecipientRepository extends JpaRepository<Recipient, Long> {
 
-    Optional<Recipient> findByEmailIgnoreCaseAndDeletedAtIsNull(String email);
+    /** Scoped explicitly: also called without a signed-in user (unsubscribe). */
+    Optional<Recipient> findByOrganizationIdAndEmailIgnoreCaseAndDeletedAtIsNull(Long organizationId, String email);
 
     boolean existsByEmailIgnoreCaseAndDeletedAtIsNull(String email);
 
@@ -39,19 +40,23 @@ public interface RecipientRepository extends JpaRepository<Recipient, Long> {
             @Param("status") RecipientStatus status,
             Pageable pageable);
 
-    @Query("SELECT r FROM Recipient r WHERE r.email IN :emails AND r.deletedAt IS NULL")
-    List<Recipient> findByEmailIn(@Param("emails") List<String> emails);
+    /** Scoped explicitly: also called by a scheduled launch, which has no signed-in user. */
+    @Query("SELECT r FROM Recipient r WHERE r.organizationId = :orgId AND r.email IN :emails AND r.deletedAt IS NULL")
+    List<Recipient> findByEmailIn(@Param("orgId") Long organizationId, @Param("emails") List<String> emails);
 
     @Query("SELECT r.email FROM Recipient r WHERE r.email IN :emails AND r.deletedAt IS NULL")
     List<String> findExistingEmails(@Param("emails") List<String> emails);
 
     /**
-     * Emails that belong to soft-deleted contacts. The email column is unique
-     * across deleted and live rows, so these addresses cannot be re-created and
+     * Emails that belong to the organization's soft-deleted contacts. The email is
+     * unique per organization across deleted and live rows, so these addresses cannot be re-created and
      * must be reported instead of failing an insert.
      */
-    @Query("SELECT r.email FROM Recipient r WHERE r.email IN :emails AND r.deletedAt IS NOT NULL")
-    List<String> findDeletedEmails(@Param("emails") List<String> emails);
+    @Query("SELECT r.email FROM Recipient r WHERE r.organizationId = :orgId AND r.email IN :emails AND r.deletedAt IS NOT NULL")
+    List<String> findDeletedEmails(@Param("orgId") Long organizationId, @Param("emails") List<String> emails);
+
+    /** Non-deleted recipient by ID. A derived query, so the organization filter applies (unlike findById). */
+    Optional<Recipient> findByIdAndDeletedAtIsNull(Long id);
 
     /** Non-deleted recipients by ID, in any status (used to reload a draft's selection). */
     List<Recipient> findByIdInAndDeletedAtIsNull(java.util.Collection<Long> ids);
@@ -66,6 +71,7 @@ public interface RecipientRepository extends JpaRepository<Recipient, Long> {
            AND r.deletedAt IS NULL
            AND r.email NOT IN (
                SELECT sub.email FROM com.mailflow.email.entity.UnsubscribeEntry sub
+               WHERE sub.organizationId = r.organizationId
            )
            """)
     Page<Recipient> findEligibleRecipients(
@@ -76,22 +82,28 @@ public interface RecipientRepository extends JpaRepository<Recipient, Long> {
 
     long countByDeletedAtIsNull();
 
+    /** Scoped explicitly (as {@link #findByIdsIn}): a scheduled launch has no signed-in user. */
     @Query("""
            SELECT DISTINCT r FROM Recipient r
            JOIN RecipientGroup g ON r MEMBER OF g.recipients
            WHERE g.id IN :groupIds
+           AND g.organizationId = :orgId
+           AND r.organizationId = :orgId
            AND r.deletedAt IS NULL
            AND r.status = 'ACTIVE'
            """)
-    List<Recipient> findByGroupIds(@Param("groupIds") java.util.Collection<Long> groupIds);
+    List<Recipient> findByGroupIds(@Param("orgId") Long organizationId,
+                                   @Param("groupIds") java.util.Collection<Long> groupIds);
 
     @Query("""
            SELECT r FROM Recipient r
            WHERE r.id IN :ids
+           AND r.organizationId = :orgId
            AND r.deletedAt IS NULL
            AND r.status = 'ACTIVE'
            """)
-    List<Recipient> findByIdsIn(@Param("ids") java.util.Collection<Long> ids);
+    List<Recipient> findByIdsIn(@Param("orgId") Long organizationId,
+                                @Param("ids") java.util.Collection<Long> ids);
 
     @Query("""
            SELECT r FROM Recipient r

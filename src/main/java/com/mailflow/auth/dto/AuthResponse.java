@@ -18,6 +18,8 @@ public record AuthResponse(
         String email,
         String firstName,
         String lastName,
-        List<String> roles
+        List<String> roles,
+        Long organizationId,
+        String organizationName
     ) {}
 }

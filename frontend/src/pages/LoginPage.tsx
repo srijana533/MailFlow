@@ -1,5 +1,5 @@
 import { useState, FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import {
   Mail, Lock, AlertCircle, Eye, EyeOff,
@@ -7,6 +7,13 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Button } from '../components/ui';
+import { apiErrorMessage, apiErrorStatus } from '../lib/errors';
+
+/**
+ * Seeded demo accounts. Shown only in local development, or when the build sets
+ * VITE_SHOW_DEMO_ACCOUNTS=true; a public deployment disables these accounts.
+ */
+const SHOW_DEMO = import.meta.env.DEV || import.meta.env.VITE_SHOW_DEMO_ACCOUNTS === 'true';
 
 const DEMO_ACCOUNTS = [
   { label: 'Admin', email: 'admin@mailflow.local', password: 'Admin@123' },
@@ -27,8 +34,8 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
 
-  const [email, setEmail] = useState('admin@mailflow.local');
-  const [password, setPassword] = useState('Admin@123');
+  const [email, setEmail] = useState(SHOW_DEMO ? DEMO_ACCOUNTS[0].email : '');
+  const [password, setPassword] = useState(SHOW_DEMO ? DEMO_ACCOUNTS[0].password : '');
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -53,8 +60,17 @@ export default function LoginPage() {
       await login(email, password);
       toast.success('Welcome back!');
       navigate('/dashboard');
-    } catch {
-      setError('Invalid email or password. Please try again.');
+    } catch (err) {
+      const status = apiErrorStatus(err);
+      const code = (err as { response?: { data?: { error?: string } } }).response?.data?.error;
+      if (status === undefined) {
+        setError('Could not reach the server. Check your connection and try again.');
+      } else if (status === 401 && code !== 'ACCOUNT_DISABLED') {
+        setError('Invalid email or password. Please try again.');
+      } else {
+        // A disabled account, or another problem: the server's message says which.
+        setError(apiErrorMessage(err, 'Sign-in failed. Please try again.'));
+      }
     } finally {
       setLoading(false);
     }
@@ -259,7 +275,15 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          {/* Demo credentials */}
+          <p className="mt-6 text-center text-sm text-slate-600">
+            New to MailFlow?{' '}
+            <Link to="/signup" className="font-semibold text-brand-600 hover:text-brand-700 hover:underline">
+              Create your company workspace
+            </Link>
+          </p>
+
+          {/* Demo credentials (local development only) */}
+          {SHOW_DEMO && (
           <div className="mt-7 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <p className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
               Demo credentials
@@ -283,6 +307,7 @@ export default function LoginPage() {
               ))}
             </div>
           </div>
+          )}
         </div>
       </div>
     </div>

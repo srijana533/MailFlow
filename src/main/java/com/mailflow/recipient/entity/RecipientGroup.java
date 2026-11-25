@@ -27,6 +27,11 @@ public class RecipientGroup {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** Owning organization. Set and filtered by Hibernate from the signed-in user (see TenantIdentifierResolver). */
+    @org.hibernate.annotations.TenantId
+    @Column(name = "organization_id", nullable = false, updatable = false)
+    private Long organizationId;
+
     @Column(nullable = false)
     private String name;
 

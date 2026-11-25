@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, Send, Users, FileText, BarChart3, LogOut, Menu, X,
+  LayoutDashboard, Send, Users, FileText, BarChart3, LogOut, Menu, X, UserCog,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import clsx from 'clsx';
@@ -20,7 +20,13 @@ const PAGE_TITLES: Record<string, string> = {
   '/recipients': 'Recipients',
   '/templates': 'Templates',
   '/analytics': 'Analytics',
+  '/team': 'Team',
 };
+
+/** Shown to company admins only; the server also restricts /api/team to ADMIN. */
+const ADMIN_NAV_ITEMS = [
+  { path: '/team', label: 'Team', icon: UserCog },
+];
 
 function initials(first?: string, last?: string): string {
   return `${first?.[0] ?? ''}${last?.[0] ?? ''}`.toUpperCase() || 'U';
@@ -40,7 +46,8 @@ function primaryRole(roles?: string[]): string {
 }
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
-  const { user, logout } = useAuthStore();
+  const { user, roles, logout } = useAuthStore();
+  const navItems = roles.includes('ADMIN') ? [...NAV_ITEMS, ...ADMIN_NAV_ITEMS] : NAV_ITEMS;
 
   return (
     <div className="flex h-full flex-col">
@@ -49,7 +56,12 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-600 to-accent-600 shadow-sm">
           <Send className="h-5 w-5 text-white" />
         </div>
-        <span className="text-lg font-bold tracking-tight text-slate-900">MailFlow</span>
+        <div className="min-w-0">
+          <span className="block text-lg font-bold leading-tight tracking-tight text-slate-900">MailFlow</span>
+          {user?.organizationName && (
+            <span className="block truncate text-xs text-slate-500" title={user.organizationName}>{user.organizationName}</span>
+          )}
+        </div>
       </div>
 
       {/* Nav */}
@@ -57,7 +69,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
           Menu
         </p>
-        {NAV_ITEMS.map(({ path, label, icon: Icon }) => (
+        {navItems.map(({ path, label, icon: Icon }) => (
           <NavLink
             key={path}
             to={path}
@@ -147,7 +159,9 @@ export default function Layout() {
                 <p className="text-xs font-semibold text-slate-900">
                   {user.firstName} {user.lastName}
                 </p>
-                <p className="text-xs text-slate-500">{primaryRole(user.roles)}</p>
+                <p className="text-xs text-slate-500">
+                  {primaryRole(user.roles)}{user.organizationName ? ` · ${user.organizationName}` : ''}
+                </p>
               </div>
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-accent-500 text-xs font-semibold text-white">
                 {initials(user.firstName, user.lastName)}

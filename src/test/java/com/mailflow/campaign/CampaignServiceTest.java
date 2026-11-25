@@ -62,7 +62,7 @@ class CampaignServiceTest {
         template.setSubject("Test Subject");
         template.setHtmlBody("<p>Hello {{FirstName}}</p>");
 
-        draftCampaign = Campaign.builder()
+        draftCampaign = Campaign.builder().organizationId(com.mailflow.tenant.TestTenant.ORG)
                 .id(1L)
                 .name("Test Campaign")
                 .subject("Test Subject")
@@ -85,7 +85,7 @@ class CampaignServiceTest {
     void creates_campaign_as_draft() {
         when(campaignRepository.save(any(Campaign.class))).thenAnswer(inv -> {
             Campaign c = inv.getArgument(0);
-            return Campaign.builder()
+            return Campaign.builder().organizationId(com.mailflow.tenant.TestTenant.ORG)
                     .id(1L).name(c.getName()).subject(c.getSubject())
                     .senderEmail(c.getSenderEmail()).status(CampaignStatus.DRAFT)
                     .build();
@@ -102,8 +102,8 @@ class CampaignServiceTest {
 
     @Test
     void launches_valid_campaign() {
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
-        when(recipientRepository.findByIdsIn(java.util.Set.of(10L)))
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(recipientRepository.findByIdsIn(com.mailflow.tenant.TestTenant.ORG, java.util.Set.of(10L)))
                 .thenReturn(java.util.List.of(activeRecipient(10L, "user@example.com")));
         when(campaignRecipientRepository.countByCampaignId(1L)).thenReturn(1L);
         when(campaignRepository.save(any(Campaign.class))).thenReturn(draftCampaign);
@@ -122,7 +122,7 @@ class CampaignServiceTest {
     @Test
     void throws_conflict_when_launching_completed_campaign() {
         draftCampaign.setStatus(CampaignStatus.COMPLETED);
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
 
         assertThatThrownBy(() -> campaignService.launch(1L))
                 .isInstanceOf(ConflictException.class);
@@ -131,7 +131,7 @@ class CampaignServiceTest {
     @Test
     void throws_validation_error_when_no_template() {
         draftCampaign.setTemplate(null);
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
 
         assertThatThrownBy(() -> campaignService.launch(1L))
                 .isInstanceOf(ValidationException.class)
@@ -145,7 +145,7 @@ class CampaignServiceTest {
         // No template and no body of its own. Before campaigns could carry their own
         // body this message was "Campaign has no template assigned".
         draftCampaign.setTemplate(null);
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
 
         assertThatThrownBy(() -> campaignService.launch(1L))
                 .isInstanceOf(ValidationException.class)
@@ -175,7 +175,7 @@ class CampaignServiceTest {
     @Test
     void update_allows_draft_to_remain_without_template() {
         draftCampaign.setTemplate(null);
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
         when(campaignRepository.save(any(Campaign.class))).thenAnswer(inv -> inv.getArgument(0));
 
         CampaignRequest request = new CampaignRequest(
@@ -192,8 +192,8 @@ class CampaignServiceTest {
     @Test
     void repeated_launch_after_queued_is_rejected_as_conflict() {
         // First launch succeeds and moves the campaign to QUEUED (not runnable again).
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
-        when(recipientRepository.findByIdsIn(java.util.Set.of(10L)))
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(recipientRepository.findByIdsIn(com.mailflow.tenant.TestTenant.ORG, java.util.Set.of(10L)))
                 .thenReturn(java.util.List.of(activeRecipient(10L, "user@example.com")));
         when(campaignRecipientRepository.countByCampaignId(1L)).thenReturn(1L);
         when(campaignRepository.save(any(Campaign.class))).thenReturn(draftCampaign);
@@ -212,7 +212,7 @@ class CampaignServiceTest {
     @Test
     void cancels_running_campaign() {
         draftCampaign.setStatus(CampaignStatus.RUNNING);
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
         when(campaignRepository.save(any(Campaign.class))).thenReturn(draftCampaign);
 
         campaignService.cancel(1L);
@@ -223,7 +223,7 @@ class CampaignServiceTest {
     @Test
     void pauses_running_campaign() {
         draftCampaign.setStatus(CampaignStatus.RUNNING);
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
         when(campaignRepository.save(any(Campaign.class))).thenReturn(draftCampaign);
 
         campaignService.pause(1L);
@@ -234,7 +234,7 @@ class CampaignServiceTest {
     @Test
     void resume_paused_campaign_re_launches_job() {
         draftCampaign.setStatus(CampaignStatus.PAUSED);
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
         when(campaignRepository.save(any(Campaign.class))).thenReturn(draftCampaign);
         doNothing().when(jobLauncher).launchCampaignJob(any());
 
@@ -246,7 +246,7 @@ class CampaignServiceTest {
     @Test
     void throws_conflict_when_pausing_non_running_campaign() {
         // DRAFT is not pauseable
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
 
         assertThatThrownBy(() -> campaignService.pause(1L))
                 .isInstanceOf(ConflictException.class);
@@ -258,7 +258,7 @@ class CampaignServiceTest {
     void launch_without_recipients_is_rejected_and_never_targets_all_contacts() {
         draftCampaign.setRecipientIds(new java.util.HashSet<>());
         draftCampaign.setRecipientGroupIds(new java.util.HashSet<>());
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
 
         assertThatThrownBy(() -> campaignService.launch(1L))
                 .isInstanceOf(ValidationException.class)
@@ -273,7 +273,7 @@ class CampaignServiceTest {
     @Test
     void launch_with_deleted_template_is_rejected() {
         template.setDeletedAt(java.time.Instant.now());
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
 
         assertThatThrownBy(() -> campaignService.launch(1L))
                 .isInstanceOf(ValidationException.class)
@@ -286,7 +286,7 @@ class CampaignServiceTest {
         // Neither an HTML nor a plain-text body: every email would carry only a subject.
         template.setHtmlBody(null);
         template.setPlainBody("   ");
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
 
         assertThatThrownBy(() -> campaignService.launch(1L))
                 .isInstanceOf(ValidationException.class)
@@ -301,8 +301,8 @@ class CampaignServiceTest {
     void launch_accepts_a_template_with_only_a_plain_text_body() {
         template.setHtmlBody(null);
         template.setPlainBody("Hello {{FirstName}}");
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
-        when(recipientRepository.findByIdsIn(java.util.Set.of(10L)))
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(recipientRepository.findByIdsIn(com.mailflow.tenant.TestTenant.ORG, java.util.Set.of(10L)))
                 .thenReturn(java.util.List.of(activeRecipient(10L, "user@example.com")));
         when(campaignRecipientRepository.countByCampaignId(1L)).thenReturn(1L);
         when(campaignRepository.save(any(Campaign.class))).thenReturn(draftCampaign);
@@ -314,7 +314,7 @@ class CampaignServiceTest {
     @Test
     void resume_starts_the_batch_job_only_after_the_transaction_commits() {
         draftCampaign.setStatus(CampaignStatus.PAUSED);
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
         when(campaignRepository.save(any(Campaign.class))).thenReturn(draftCampaign);
 
         TransactionSynchronizationManager.initSynchronization();
@@ -361,8 +361,8 @@ class CampaignServiceTest {
     void launch_is_rejected_when_no_selected_recipient_can_be_emailed() {
         com.mailflow.recipient.entity.Recipient unsubscribed = activeRecipient(10L, "user@example.com");
         unsubscribed.setStatus(com.mailflow.recipient.entity.RecipientStatus.UNSUBSCRIBED);
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
-        when(recipientRepository.findByIdsIn(java.util.Set.of(10L)))
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(recipientRepository.findByIdsIn(com.mailflow.tenant.TestTenant.ORG, java.util.Set.of(10L)))
                 .thenReturn(java.util.List.of(unsubscribed));
         when(campaignRecipientRepository.countByCampaignId(1L)).thenReturn(0L);
 
@@ -374,8 +374,8 @@ class CampaignServiceTest {
 
     @Test
     void launch_starts_batch_job_only_after_the_transaction_commits() {
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
-        when(recipientRepository.findByIdsIn(java.util.Set.of(10L)))
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(recipientRepository.findByIdsIn(com.mailflow.tenant.TestTenant.ORG, java.util.Set.of(10L)))
                 .thenReturn(java.util.List.of(activeRecipient(10L, "user@example.com")));
         when(campaignRecipientRepository.countByCampaignId(1L)).thenReturn(1L);
         when(campaignRepository.save(any(Campaign.class))).thenReturn(draftCampaign);
@@ -408,7 +408,7 @@ class CampaignServiceTest {
         EmailTemplate other = new EmailTemplate();
         other.setId(2L);
         other.setName("Other template");
-        when(campaignRepository.findById(1L)).thenReturn(Optional.of(draftCampaign));
+        when(campaignRepository.findOneById(1L)).thenReturn(Optional.of(draftCampaign));
         when(templateService.getOrThrow(2L)).thenReturn(other);
         when(campaignRepository.save(any(Campaign.class))).thenAnswer(inv -> inv.getArgument(0));
 

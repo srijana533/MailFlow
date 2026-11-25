@@ -94,7 +94,7 @@ class CampaignOnlyAddressesTest {
         template.setSubject("Hello");
         template.setPlainBody("Hello {{FirstName}}");
 
-        campaign = Campaign.builder()
+        campaign = Campaign.builder().organizationId(com.mailflow.tenant.TestTenant.ORG)
                 .id(CAMPAIGN_ID)
                 .name("Campaign-only test")
                 .subject("Hello {{FirstName}}")
@@ -144,7 +144,7 @@ class CampaignOnlyAddressesTest {
     }
 
     private void prepareLaunch() {
-        when(campaignRepository.findById(CAMPAIGN_ID)).thenReturn(Optional.of(campaign));
+        when(campaignRepository.findOneById(CAMPAIGN_ID)).thenReturn(Optional.of(campaign));
         lenient().when(campaignRepository.save(any(Campaign.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -172,8 +172,8 @@ class CampaignOnlyAddressesTest {
         CampaignTargetAddress bob = stored("bob@test.local", null);
         when(targetAddressRepository.countByCampaignId(CAMPAIGN_ID)).thenReturn(2L);
         when(targetAddressRepository.findByCampaignIdOrderByIdAsc(CAMPAIGN_ID)).thenReturn(List.of(ada, bob));
-        when(recipientRepository.findByEmailIn(List.of("ada@test.local", "bob@test.local"))).thenReturn(List.of());
-        when(recipientRepository.findDeletedEmails(List.of("ada@test.local", "bob@test.local"))).thenReturn(List.of());
+        when(recipientRepository.findByEmailIn(com.mailflow.tenant.TestTenant.ORG, List.of("ada@test.local", "bob@test.local"))).thenReturn(List.of());
+        when(recipientRepository.findDeletedEmails(com.mailflow.tenant.TestTenant.ORG, List.of("ada@test.local", "bob@test.local"))).thenReturn(List.of());
         when(campaignRecipientRepository.countByCampaignId(CAMPAIGN_ID)).thenReturn(2L);
 
         CampaignResponse response = campaignService.launch(CAMPAIGN_ID);
@@ -204,7 +204,7 @@ class CampaignOnlyAddressesTest {
         assertThat(response.targetAddressCount()).isEqualTo(2);
         verify(jobLauncher).launchCampaignJob(CAMPAIGN_ID);
         verify(recipientRepository, never()).findAllActiveRecipients();
-        verify(recipientRepository, never()).findByIdsIn(any());
+        verify(recipientRepository, never()).findByIdsIn(any(), any());
         verifyNoContactWasCreated();
     }
 
@@ -213,11 +213,11 @@ class CampaignOnlyAddressesTest {
         prepareLaunch();
         Recipient ada = contact(10L, "ada@test.local", RecipientStatus.ACTIVE);
         campaign.setRecipientIds(new HashSet<>(Set.of(10L)));
-        when(recipientRepository.findByIdsIn(Set.of(10L))).thenReturn(List.of(ada));
+        when(recipientRepository.findByIdsIn(com.mailflow.tenant.TestTenant.ORG, Set.of(10L))).thenReturn(List.of(ada));
         when(targetAddressRepository.findByCampaignIdOrderByIdAsc(CAMPAIGN_ID))
                 .thenReturn(List.of(stored("ada@test.local", "Typed Ada"), stored("new@test.local", null)));
-        when(recipientRepository.findByEmailIn(List.of("ada@test.local", "new@test.local"))).thenReturn(List.of(ada));
-        when(recipientRepository.findDeletedEmails(anyList())).thenReturn(List.of());
+        when(recipientRepository.findByEmailIn(com.mailflow.tenant.TestTenant.ORG, List.of("ada@test.local", "new@test.local"))).thenReturn(List.of(ada));
+        when(recipientRepository.findDeletedEmails(any(), anyList())).thenReturn(List.of());
         when(campaignRecipientRepository.countByCampaignId(CAMPAIGN_ID)).thenReturn(2L);
 
         campaignService.launch(CAMPAIGN_ID);
@@ -242,11 +242,11 @@ class CampaignOnlyAddressesTest {
                 stored("now.unsubscribed@test.local", null),
                 stored("now.bounced@test.local", null)));
         Recipient active = contact(20L, "now.active@test.local", RecipientStatus.ACTIVE);
-        when(recipientRepository.findByEmailIn(anyList())).thenReturn(List.of(
+        when(recipientRepository.findByEmailIn(any(), anyList())).thenReturn(List.of(
                 active,
                 contact(21L, "now.unsubscribed@test.local", RecipientStatus.UNSUBSCRIBED),
                 contact(22L, "now.bounced@test.local", RecipientStatus.BOUNCED)));
-        when(recipientRepository.findDeletedEmails(anyList())).thenReturn(List.of());
+        when(recipientRepository.findDeletedEmails(any(), anyList())).thenReturn(List.of());
         when(campaignRecipientRepository.countByCampaignId(CAMPAIGN_ID)).thenReturn(1L);
 
         campaignService.launch(CAMPAIGN_ID);
@@ -265,10 +265,10 @@ class CampaignOnlyAddressesTest {
         when(targetAddressRepository.countByCampaignId(CAMPAIGN_ID)).thenReturn(3L);
         when(targetAddressRepository.findByCampaignIdOrderByIdAsc(CAMPAIGN_ID)).thenReturn(List.of(
                 stored("gone@test.local", null), stored("optout@test.local", null), stored("ok@test.local", null)));
-        when(recipientRepository.findByEmailIn(anyList())).thenReturn(List.of());
-        when(recipientRepository.findDeletedEmails(anyList())).thenReturn(List.of("gone@test.local"));
-        when(unsubscribeService.isUnsubscribed(anyString()))
-                .thenAnswer(inv -> "optout@test.local".equals(inv.getArgument(0)));
+        when(recipientRepository.findByEmailIn(any(), anyList())).thenReturn(List.of());
+        when(recipientRepository.findDeletedEmails(any(), anyList())).thenReturn(List.of("gone@test.local"));
+        when(unsubscribeService.isUnsubscribed(any(), anyString()))
+                .thenAnswer(inv -> "optout@test.local".equals(inv.getArgument(1)));
         when(campaignRecipientRepository.countByCampaignId(CAMPAIGN_ID)).thenReturn(1L);
 
         campaignService.launch(CAMPAIGN_ID);
@@ -282,9 +282,9 @@ class CampaignOnlyAddressesTest {
         when(targetAddressRepository.countByCampaignId(CAMPAIGN_ID)).thenReturn(2L);
         when(targetAddressRepository.findByCampaignIdOrderByIdAsc(CAMPAIGN_ID))
                 .thenReturn(List.of(stored("gone@test.local", null), stored("optout@test.local", null)));
-        when(recipientRepository.findByEmailIn(anyList())).thenReturn(List.of());
-        when(recipientRepository.findDeletedEmails(anyList())).thenReturn(List.of("gone@test.local"));
-        when(unsubscribeService.isUnsubscribed("optout@test.local")).thenReturn(true);
+        when(recipientRepository.findByEmailIn(any(), anyList())).thenReturn(List.of());
+        when(recipientRepository.findDeletedEmails(any(), anyList())).thenReturn(List.of("gone@test.local"));
+        when(unsubscribeService.isUnsubscribed(com.mailflow.tenant.TestTenant.ORG, "optout@test.local")).thenReturn(true);
 
         assertThatThrownBy(() -> campaignService.launch(CAMPAIGN_ID))
                 .isInstanceOf(ValidationException.class)
@@ -300,14 +300,14 @@ class CampaignOnlyAddressesTest {
         campaign.setStatus(CampaignStatus.FAILED);
         Recipient ada = contact(10L, "ada@test.local", RecipientStatus.ACTIVE);
         campaign.setRecipientIds(new HashSet<>(Set.of(10L)));
-        when(recipientRepository.findByIdsIn(Set.of(10L))).thenReturn(List.of(ada));
+        when(recipientRepository.findByIdsIn(com.mailflow.tenant.TestTenant.ORG, Set.of(10L))).thenReturn(List.of(ada));
         // First launch: a contact row for ada and a campaign-only row for bob.
         when(campaignRecipientRepository.findTargetedEmails(CAMPAIGN_ID))
                 .thenReturn(List.of("ada@test.local", "bob@test.local"));
         when(targetAddressRepository.findByCampaignIdOrderByIdAsc(CAMPAIGN_ID))
                 .thenReturn(List.of(stored("ada@test.local", null), stored("bob@test.local", null)));
-        when(recipientRepository.findByEmailIn(anyList())).thenReturn(List.of(ada));
-        when(recipientRepository.findDeletedEmails(anyList())).thenReturn(List.of());
+        when(recipientRepository.findByEmailIn(any(), anyList())).thenReturn(List.of(ada));
+        when(recipientRepository.findDeletedEmails(any(), anyList())).thenReturn(List.of());
         when(campaignRecipientRepository.countByCampaignId(CAMPAIGN_ID)).thenReturn(2L);
 
         CampaignResponse response = campaignService.launch(CAMPAIGN_ID);
@@ -328,9 +328,9 @@ class CampaignOnlyAddressesTest {
         when(targetAddressRepository.findByCampaignIdOrderByIdAsc(CAMPAIGN_ID))
                 .thenReturn(List.of(stored("bob@test.local", null)));
         // ... and has been saved as a contact since then.
-        when(recipientRepository.findByEmailIn(anyList()))
+        when(recipientRepository.findByEmailIn(any(), anyList()))
                 .thenReturn(List.of(contact(30L, "bob@test.local", RecipientStatus.ACTIVE)));
-        when(recipientRepository.findDeletedEmails(anyList())).thenReturn(List.of());
+        when(recipientRepository.findDeletedEmails(any(), anyList())).thenReturn(List.of());
         when(campaignRecipientRepository.countByCampaignId(CAMPAIGN_ID)).thenReturn(1L);
 
         campaignService.launch(CAMPAIGN_ID);
@@ -418,7 +418,7 @@ class CampaignOnlyAddressesTest {
 
     @Test
     void update_rejects_invalid_addresses_before_changing_the_draft() {
-        when(campaignRepository.findById(CAMPAIGN_ID)).thenReturn(Optional.of(campaign));
+        when(campaignRepository.findOneById(CAMPAIGN_ID)).thenReturn(Optional.of(campaign));
 
         assertThatThrownBy(() -> campaignService.update(CAMPAIGN_ID, new CampaignRequest(
                 "Renamed", null, "Hello", null, null, "sender@test.local", null, null, null, null,
@@ -433,7 +433,7 @@ class CampaignOnlyAddressesTest {
     void update_with_null_target_addresses_keeps_the_stored_ones() {
         store.add(stored("ada@test.local", "Ada"));
         useInMemoryTargetStore();
-        when(campaignRepository.findById(CAMPAIGN_ID)).thenReturn(Optional.of(campaign));
+        when(campaignRepository.findOneById(CAMPAIGN_ID)).thenReturn(Optional.of(campaign));
         when(campaignRepository.save(any(Campaign.class))).thenAnswer(inv -> inv.getArgument(0));
 
         CampaignResponse response = campaignService.update(CAMPAIGN_ID, request(null));
@@ -449,7 +449,7 @@ class CampaignOnlyAddressesTest {
         store.add(stored("ada@test.local", "Ada"));
         store.add(stored("bob@test.local", "Bob"));
         useInMemoryTargetStore();
-        when(campaignRepository.findById(CAMPAIGN_ID)).thenReturn(Optional.of(campaign));
+        when(campaignRepository.findOneById(CAMPAIGN_ID)).thenReturn(Optional.of(campaign));
         when(campaignRepository.save(any(Campaign.class))).thenAnswer(inv -> inv.getArgument(0));
 
         CampaignResponse response = campaignService.update(CAMPAIGN_ID, request(List.of()));
@@ -469,7 +469,7 @@ class CampaignOnlyAddressesTest {
         carol.setId(nextStoredId++);
         store.addAll(List.of(ada, bob, carol));
         useInMemoryTargetStore();
-        when(campaignRepository.findById(CAMPAIGN_ID)).thenReturn(Optional.of(campaign));
+        when(campaignRepository.findOneById(CAMPAIGN_ID)).thenReturn(Optional.of(campaign));
         when(campaignRepository.save(any(Campaign.class))).thenAnswer(inv -> inv.getArgument(0));
 
         CampaignResponse response = campaignService.update(CAMPAIGN_ID, request(List.of(
@@ -494,7 +494,7 @@ class CampaignOnlyAddressesTest {
 
     @Test
     void list_responses_carry_the_count_but_not_the_addresses() throws Exception {
-        Campaign other = Campaign.builder().id(8L).name("Other").subject("S").build();
+        Campaign other = Campaign.builder().organizationId(com.mailflow.tenant.TestTenant.ORG).id(8L).name("Other").subject("S").build();
         PageRequest pageable = PageRequest.of(0, 20);
         when(campaignRepository.findAll(null, null, pageable)).thenReturn(new PageImpl<>(List.of(campaign, other)));
         when(targetAddressRepository.countByCampaignIds(List.of(CAMPAIGN_ID, 8L)))

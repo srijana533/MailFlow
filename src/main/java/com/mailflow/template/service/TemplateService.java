@@ -57,13 +57,13 @@ public class TemplateService {
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "templates", key = "#id")
+    @Cacheable(value = "templates", key = "T(com.mailflow.tenant.TenantContext).key(#id)")
     public TemplateResponse findById(Long id) {
         return toResponse(getOrThrow(id));
     }
 
     @Transactional
-    @CacheEvict(value = "templates", key = "#id")
+    @CacheEvict(value = "templates", key = "T(com.mailflow.tenant.TenantContext).key(#id)")
     public TemplateResponse update(Long id, TemplateRequest request) {
         EmailTemplate template = getOrThrow(id);
         template.setName(request.name());
@@ -76,7 +76,7 @@ public class TemplateService {
     }
 
     @Transactional
-    @CacheEvict(value = "templates", key = "#id")
+    @CacheEvict(value = "templates", key = "T(com.mailflow.tenant.TenantContext).key(#id)")
     public void delete(Long id) {
         EmailTemplate template = getOrThrow(id);
         template.setDeletedAt(Instant.now());

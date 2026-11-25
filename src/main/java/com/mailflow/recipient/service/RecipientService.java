@@ -66,13 +66,13 @@ public class RecipientService {
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(value = "recipients", key = "#id")
+    @Cacheable(value = "recipients", key = "T(com.mailflow.tenant.TenantContext).key(#id)")
     public RecipientResponse findById(Long id) {
         return toResponse(getOrThrow(id));
     }
 
     @Transactional
-    @CacheEvict(value = "recipients", key = "#id")
+    @CacheEvict(value = "recipients", key = "T(com.mailflow.tenant.TenantContext).key(#id)")
     public RecipientResponse update(Long id, RecipientRequest request) {
         Recipient existing = getOrThrow(id);
         String email = EmailValidator.normalize(request.email());
@@ -97,7 +97,7 @@ public class RecipientService {
     }
 
     @Transactional
-    @CacheEvict(value = "recipients", key = "#id")
+    @CacheEvict(value = "recipients", key = "T(com.mailflow.tenant.TenantContext).key(#id)")
     public void delete(Long id) {
         Recipient recipient = getOrThrow(id);
         recipient.setDeletedAt(Instant.now());
@@ -140,11 +140,12 @@ public class RecipientService {
                     .distinct()
                     .toList();
             if (!emails.isEmpty()) {
-                for (Recipient r : recipientRepository.findByEmailIn(emails)) {
+                Long orgId = com.mailflow.tenant.TenantContext.requireOrganizationId();
+                for (Recipient r : recipientRepository.findByEmailIn(orgId, emails)) {
                     found.putIfAbsent(r.getId(), r);
                 }
-                deletedEmails = recipientRepository.findDeletedEmails(emails);
-                unsubscribedEmails = unsubscribeRepository.findEmailsIn(emails);
+                deletedEmails = recipientRepository.findDeletedEmails(orgId, emails);
+                unsubscribedEmails = unsubscribeRepository.findEmailsIn(orgId, emails);
             }
         }
 
@@ -157,8 +158,7 @@ public class RecipientService {
     // ── Internal helpers ─────────────────────────────────────────────────────
 
     private Recipient getOrThrow(Long id) {
-        return recipientRepository.findById(id)
-                .filter(r -> r.getDeletedAt() == null)
+        return recipientRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Recipient", id));
     }
 

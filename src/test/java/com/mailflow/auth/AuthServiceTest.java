@@ -13,6 +13,7 @@ import com.mailflow.security.JwtService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -37,6 +38,7 @@ class AuthServiceTest {
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private JwtService jwtService;
     @Mock private AuthenticationManager authenticationManager;
+    @Mock private com.mailflow.organization.repository.OrganizationRepository organizationRepository;
     @InjectMocks private AuthService authService;
 
     private Role viewerRole;
@@ -56,20 +58,30 @@ class AuthServiceTest {
     }
 
     @Test
-    void registers_new_user_successfully() {
+    void sign_up_creates_a_company_with_the_person_as_its_admin() {
         when(userRepository.existsByEmailIgnoreCase(anyString())).thenReturn(false);
-        when(roleRepository.findByName("VIEWER")).thenReturn(Optional.of(viewerRole));
+        when(organizationRepository.save(any())).thenAnswer(inv -> {
+            com.mailflow.organization.entity.Organization o = inv.getArgument(0);
+            o.setId(42L);
+            return o;
+        });
+        when(roleRepository.findByName(anyString())).thenAnswer(inv -> Optional.of(new Role(inv.<String>getArgument(0))));
         when(passwordEncoder.encode(anyString())).thenReturn("hashed");
         when(userRepository.save(any(User.class))).thenReturn(savedUser);
         when(jwtService.generateAccessToken(any())).thenReturn("access-token");
         when(jwtService.generateRefreshToken(any())).thenReturn("refresh-token");
 
         var response = authService.register(new RegisterRequest(
-            "test@example.com", "Password@123", "Test", "User"));
+            "  Acme Ltd ", "Test@Example.com", "Password@123", "Test", "User"));
 
         assertThat(response.accessToken()).isEqualTo("access-token");
         assertThat(response.user().email()).isEqualTo("test@example.com");
-        verify(userRepository).save(any(User.class));
+        assertThat(response.user().organizationId()).isEqualTo(42L);
+        assertThat(response.user().organizationName()).isEqualTo("Acme Ltd");
+        assertThat(response.user().roles()).containsExactlyInAnyOrder("ADMIN", "CAMPAIGN_MANAGER", "VIEWER");
+        ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(saved.capture());
+        assertThat(saved.getValue().getOrganizationId()).isEqualTo(42L);
     }
 
     @Test
@@ -77,7 +89,7 @@ class AuthServiceTest {
         when(userRepository.existsByEmailIgnoreCase("test@example.com")).thenReturn(true);
 
         assertThatThrownBy(() -> authService.register(
-            new RegisterRequest("test@example.com", "Password@123", "Test", "User")))
+            new RegisterRequest("Acme", "test@example.com", "Password@123", "Test", "User")))
             .isInstanceOf(ConflictException.class);
     }
 

@@ -110,7 +110,7 @@ class TemplateContentRenderTest {
                 .company("Analytical Engines")
                 .customFields(new HashMap<>(Map.of("role", "Engineer", "Team", "Platform")))
                 .build();
-        Campaign campaign = Campaign.builder()
+        Campaign campaign = Campaign.builder().organizationId(com.mailflow.tenant.TestTenant.ORG)
                 .id(3L).subject(SUBJECT).senderEmail("noreply@mailflow.local")
                 .template(EmailTemplate.builder().id(9L).name("Draft").subject(SUBJECT)
                         .htmlBody(HTML).plainBody(PLAIN).build())
@@ -121,7 +121,7 @@ class TemplateContentRenderTest {
                 .deliveryStatus(CampaignRecipient.DeliveryStatus.PENDING)
                 .retryCount(0)
                 .build();
-        when(unsubscribeService.isUnsubscribed("ada@demo.local")).thenReturn(false);
+        when(unsubscribeService.isUnsubscribed(com.mailflow.tenant.TestTenant.ORG, "ada@demo.local")).thenReturn(false);
         // The processor only renders while the campaign is RUNNING.
         when(campaignRepository.findStatusById(3L)).thenReturn(Optional.of(CampaignStatus.RUNNING));
 

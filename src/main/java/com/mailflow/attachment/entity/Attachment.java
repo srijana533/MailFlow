@@ -20,6 +20,11 @@ public class Attachment {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** Owning organization. Set and filtered by Hibernate from the signed-in user (see TenantIdentifierResolver). */
+    @org.hibernate.annotations.TenantId
+    @Column(name = "organization_id", nullable = false, updatable = false)
+    private Long organizationId;
+
     @Column(name = "original_name", nullable = false)
     private String originalName;
 

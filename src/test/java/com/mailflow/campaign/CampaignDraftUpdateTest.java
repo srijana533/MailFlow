@@ -86,7 +86,7 @@ class CampaignDraftUpdateTest {
         template.setName("Welcome");
         template.setSubject("Hello");
 
-        lenient().when(campaignRepository.findById(CAMPAIGN_ID)).thenAnswer(inv -> Optional.ofNullable(stored));
+        lenient().when(campaignRepository.findOneById(CAMPAIGN_ID)).thenAnswer(inv -> Optional.ofNullable(stored));
         lenient().when(campaignRepository.save(any(Campaign.class))).thenAnswer(inv -> {
             Campaign c = inv.getArgument(0);
             if (c.getId() == null) c.setId(CAMPAIGN_ID);
@@ -114,7 +114,7 @@ class CampaignDraftUpdateTest {
 
     /** A saved draft with every field set: template, contacts, a group and two campaign-only addresses. */
     private void seedDraft() {
-        stored = Campaign.builder()
+        stored = Campaign.builder().organizationId(com.mailflow.tenant.TestTenant.ORG)
                 .id(CAMPAIGN_ID)
                 .name("Spring launch")
                 .description("Internal note")

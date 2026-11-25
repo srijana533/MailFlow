@@ -29,6 +29,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Hibernate against the real UnsubscribeEntry mapping, on an in-memory H2 database
  * with a hand-written table, and evaluates UnsubscribeService's cache-key expressions.
  * PostgreSQL and the Spring cache itself are not used.
+ *
+ * <p>The list is per organization: an opt-out from one company must not hide the
+ * address from another company.
  */
 class UnsubscribeListQueryTest {
 
@@ -43,13 +46,15 @@ class UnsubscribeListQueryTest {
              Statement s = c.createStatement()) {
             s.execute("""
                     CREATE TABLE unsubscribe_list (
-                        id BIGINT PRIMARY KEY, email VARCHAR(255) NOT NULL UNIQUE,
+                        id BIGINT PRIMARY KEY, organization_id BIGINT NOT NULL, email VARCHAR(255) NOT NULL,
                         token VARCHAR(64) NOT NULL UNIQUE, reason VARCHAR(1000),
-                        unsubscribed_at TIMESTAMP WITH TIME ZONE NOT NULL, campaign_id BIGINT)""");
+                        unsubscribed_at TIMESTAMP WITH TIME ZONE NOT NULL, campaign_id BIGINT,
+                        UNIQUE (organization_id, email))""");
             s.execute("""
-                    INSERT INTO unsubscribe_list (id, email, token, unsubscribed_at, campaign_id) VALUES
-                        (1, 'ada@test.local', 't1', CURRENT_TIMESTAMP, NULL),
-                        (2, 'bob@test.local', 't2', CURRENT_TIMESTAMP, 7)""");
+                    INSERT INTO unsubscribe_list (id, organization_id, email, token, unsubscribed_at, campaign_id) VALUES
+                        (1, 1, 'ada@test.local', 't1', CURRENT_TIMESTAMP, NULL),
+                        (2, 1, 'bob@test.local', 't2', CURRENT_TIMESTAMP, 7),
+                        (3, 2, 'carol@test.local', 't3', CURRENT_TIMESTAMP, NULL)""");
         }
         registry = new StandardServiceRegistryBuilder()
                 .applySetting("hibernate.connection.url", URL)
@@ -69,38 +74,56 @@ class UnsubscribeListQueryTest {
         if (registry != null) StandardServiceRegistryBuilder.destroy(registry);
     }
 
-    @Test
-    void find_emails_in_returns_only_the_listed_addresses() throws Exception {
-        String jpql = UnsubscribeRepository.class.getMethod("findEmailsIn", Collection.class)
+    private static List<String> findEmailsIn(Session session, long orgId, List<String> emails) throws Exception {
+        String jpql = UnsubscribeRepository.class.getMethod("findEmailsIn", Long.class, Collection.class)
                 .getAnnotation(Query.class).value();
+        return session.createQuery(jpql, String.class)
+                .setParameter("orgId", orgId)
+                .setParameter("emails", emails)
+                .getResultList();
+    }
 
+    @Test
+    void find_emails_in_returns_only_the_listed_addresses_of_the_organization() throws Exception {
         try (Session session = sessionFactory.openSession()) {
-            List<String> found = session.createQuery(jpql, String.class)
-                    .setParameter("emails", List.of("ada@test.local", "bob@test.local", "nobody@test.local"))
-                    .getResultList();
-            assertThat(found).containsExactlyInAnyOrder("ada@test.local", "bob@test.local");
-
-            assertThat(session.createQuery(jpql, String.class)
-                    .setParameter("emails", List.of("nobody@test.local"))
-                    .getResultList()).isEmpty();
+            assertThat(findEmailsIn(session, 1, List.of("ada@test.local", "bob@test.local", "nobody@test.local")))
+                    .containsExactlyInAnyOrder("ada@test.local", "bob@test.local");
+            assertThat(findEmailsIn(session, 1, List.of("nobody@test.local"))).isEmpty();
         }
     }
 
     @Test
-    void the_cache_keys_are_the_normalised_address() throws Exception {
+    void an_opt_out_from_one_company_does_not_apply_to_another() throws Exception {
+        try (Session session = sessionFactory.openSession()) {
+            // carol opted out of company 2 only; ada and bob of company 1 only.
+            assertThat(findEmailsIn(session, 1, List.of("carol@test.local"))).isEmpty();
+            assertThat(findEmailsIn(session, 2, List.of("ada@test.local", "bob@test.local", "carol@test.local")))
+                    .containsExactly("carol@test.local");
+        }
+    }
+
+    @Test
+    void the_cache_keys_are_the_organization_and_the_normalised_address() throws Exception {
         // The "unsubscribed" cache is read when sending and evicted on unsubscribe; both
-        // keys must be the same normalised address, whatever spelling each caller uses.
-        String readKey = UnsubscribeService.class.getMethod("isUnsubscribed", String.class)
+        // keys must be the same, whatever spelling each caller uses, and must differ
+        // between organizations.
+        String readKey = UnsubscribeService.class.getMethod("isUnsubscribed", Long.class, String.class)
                 .getAnnotation(Cacheable.class).key();
-        String evictKey = UnsubscribeService.class.getMethod("unsubscribe", String.class, String.class, Long.class)
+        String evictKey = UnsubscribeService.class
+                .getMethod("unsubscribe", Long.class, String.class, String.class, Long.class)
                 .getAnnotation(CacheEvict.class).key();
         assertThat(evictKey).isEqualTo(readKey);
 
         SpelExpressionParser parser = new SpelExpressionParser();
         for (String spelling : List.of("ada@test.local", " Ada@Test.Local\u00A0", "\u200BADA@TEST.LOCAL\uFEFF")) {
             StandardEvaluationContext context = new StandardEvaluationContext();
+            context.setVariable("organizationId", 1L);
             context.setVariable("email", spelling);
-            assertThat(parser.parseExpression(readKey).getValue(context)).isEqualTo("ada@test.local");
+            assertThat(parser.parseExpression(readKey).getValue(context)).isEqualTo("1:ada@test.local");
         }
+        StandardEvaluationContext other = new StandardEvaluationContext();
+        other.setVariable("organizationId", 2L);
+        other.setVariable("email", "ada@test.local");
+        assertThat(parser.parseExpression(readKey).getValue(other)).isEqualTo("2:ada@test.local");
     }
 }

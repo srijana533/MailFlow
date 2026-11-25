@@ -82,7 +82,7 @@ public class CampaignItemProcessor implements ItemProcessor<CampaignRecipient, E
         }
 
         // Unsubscribe check (by address, so it covers campaign-only addresses too)
-        if (unsubscribeService.isUnsubscribed(toAddress)) {
+        if (unsubscribeService.isUnsubscribed(campaign.getOrganizationId(), toAddress)) {
             log.debug("Skip unsubscribed: {}", toAddress);
             campaignRecipientRepository.markFailed(
                     cr.getIdempotencyKey(), DeliveryStatus.SKIPPED,

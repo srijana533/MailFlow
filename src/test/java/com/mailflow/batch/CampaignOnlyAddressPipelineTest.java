@@ -76,7 +76,7 @@ class CampaignOnlyAddressPipelineTest {
         lenient().when(runningCampaign.findStatusById(7L))
                 .thenReturn(Optional.of(com.mailflow.campaign.entity.CampaignStatus.RUNNING));
 
-        campaign = Campaign.builder()
+        campaign = Campaign.builder().organizationId(com.mailflow.tenant.TestTenant.ORG)
                 .id(7L)
                 .subject("Hi {{FirstName}} ({{Team}})")
                 .senderName("MailFlow")
@@ -138,13 +138,13 @@ class CampaignOnlyAddressPipelineTest {
         assertThat(msg.plainBody()).isEqualTo("Dear Ada Lovelace Lovelace");
         // The transient Recipient used for the model is never attached to the row.
         assertThat(row.getRecipient()).isNull();
-        verify(unsubscribeService).isUnsubscribed("ada@test.local");
+        verify(unsubscribeService).isUnsubscribed(com.mailflow.tenant.TestTenant.ORG, "ada@test.local");
         verify(campaignRecipientRepository, never()).markFailed(any(), any(), any(), any());
     }
 
     @Test
     void processor_skips_an_unsubscribed_campaign_only_address() {
-        when(unsubscribeService.isUnsubscribed("ada@test.local")).thenReturn(true);
+        when(unsubscribeService.isUnsubscribed(com.mailflow.tenant.TestTenant.ORG, "ada@test.local")).thenReturn(true);
 
         assertThat(processor.process(adaRow())).isNull();
         verify(campaignRecipientRepository).markFailed(
@@ -225,11 +225,11 @@ class CampaignOnlyAddressPipelineTest {
         RecipientRepository recipientRepository = org.mockito.Mockito.mock(RecipientRepository.class);
         // The address is normalised before it is looked up and stored, so a later send to
         // "ada@test.local" finds the entry.
-        when(unsubscribeRepository.existsByEmailIgnoreCase("ada@test.local")).thenReturn(false);
-        when(recipientRepository.findByEmailIgnoreCaseAndDeletedAtIsNull("ada@test.local")).thenReturn(Optional.empty());
+        when(unsubscribeRepository.findByOrganizationIdAndEmailIgnoreCase(7L, "ada@test.local")).thenReturn(Optional.empty());
+        when(recipientRepository.findByOrganizationIdAndEmailIgnoreCaseAndDeletedAtIsNull(7L, "ada@test.local")).thenReturn(Optional.empty());
 
         String token = new UnsubscribeService(unsubscribeRepository, recipientRepository)
-                .unsubscribe(" Ada@Test.Local\u00A0", "No thanks", 7L);
+                .unsubscribe(7L, " Ada@Test.Local\u00A0", "No thanks", 7L);
 
         ArgumentCaptor<UnsubscribeEntry> entry = ArgumentCaptor.forClass(UnsubscribeEntry.class);
         verify(unsubscribeRepository).save(entry.capture());

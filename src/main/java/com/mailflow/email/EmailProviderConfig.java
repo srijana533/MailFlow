@@ -37,7 +37,12 @@ public class EmailProviderConfig {
             boolean authenticated = username != null && !username.isBlank();
             log.info("Email provider: SMTP (production mode) host={} port={} auth={}",
                     mailProperties.getHost(), mailProperties.getPort(), authenticated);
-            return new SmtpEmailProvider(mailSender, username);
+            String platformFrom = "platform".equalsIgnoreCase(properties.getEmail().getFromPolicy())
+                    ? properties.getEmail().getFromAddress() : null;
+            if (platformFrom != null) {
+                log.info("Email From: platform sender {} (campaign senders become Reply-To)", platformFrom);
+            }
+            return new SmtpEmailProvider(mailSender, username, platformFrom);
         }
 
         log.warn("Email provider: DEV MODE — emails will be logged to console, not sent");

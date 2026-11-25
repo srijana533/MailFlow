@@ -16,12 +16,16 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Redirect to login on 401
+// An expired or revoked session answers 401: clear it and open the login page.
+// Sign-in and sign-up answer 401 for a wrong password or a disabled account; those
+// pages show the message themselves, so they are not redirected.
 apiClient.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    const url: string = err.config?.url ?? '';
+    if (err.response?.status === 401 && !url.includes('/api/auth/')) {
       localStorage.removeItem('accessToken');
+      localStorage.removeItem('user');
       window.location.href = '/login';
     }
     return Promise.reject(err);

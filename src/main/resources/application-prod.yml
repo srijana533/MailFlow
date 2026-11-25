@@ -1,0 +1,17 @@
+# Public deployment settings. Activate with SPRING_PROFILES_ACTIVE=prod.
+# ProductionSafetyCheck refuses to start unless JWT_SECRET, FRONTEND_URL and
+# DEMO_ACCOUNTS_ENABLED=false are set.
+
+mailflow:
+  security:
+    demo-accounts-enabled: ${DEMO_ACCOUNTS_ENABLED:false}
+
+springdoc:
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${API_DOCS_ENABLED:false}
+
+logging:
+  level:
+    com.mailflow: INFO

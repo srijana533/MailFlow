@@ -27,19 +27,28 @@ import java.util.function.Function;
 @RequiredArgsConstructor
 public class JwtService {
 
+    private static final String CLAIM_TYPE = "typ";
+    private static final String TYPE_ACCESS = "access";
+    private static final String TYPE_REFRESH = "refresh";
+
     private final MailFlowProperties properties;
 
     // ── Token generation ─────────────────────────────────────────────────────
 
     public String generateAccessToken(UserDetails userDetails) {
-        return buildToken(userDetails, properties.getSecurity().getJwt().getAccessTokenExpiryMs());
+        return buildToken(userDetails, properties.getSecurity().getJwt().getAccessTokenExpiryMs(), TYPE_ACCESS);
     }
 
     public String generateRefreshToken(UserDetails userDetails) {
-        return buildToken(userDetails, properties.getSecurity().getJwt().getRefreshTokenExpiryMs());
+        return buildToken(userDetails, properties.getSecurity().getJwt().getRefreshTokenExpiryMs(), TYPE_REFRESH);
     }
 
-    private String buildToken(UserDetails userDetails, long expiryMs) {
+    /** Access-token lifetime in seconds, as reported to the client. */
+    public long accessTokenExpirySeconds() {
+        return properties.getSecurity().getJwt().getAccessTokenExpiryMs() / 1000;
+    }
+
+    private String buildToken(UserDetails userDetails, long expiryMs, String type) {
         List<String> roles = userDetails.getAuthorities()
                 .stream()
                 .map(GrantedAuthority::getAuthority)
@@ -48,6 +57,7 @@ public class JwtService {
         return Jwts.builder()
                 .subject(userDetails.getUsername())
                 .claim("roles", roles)
+                .claim(CLAIM_TYPE, type)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expiryMs))
                 .signWith(signingKey())
@@ -74,6 +84,14 @@ public class JwtService {
     public boolean isTokenValid(String token, UserDetails userDetails) {
         String username = extractUsername(token);
         return username.equals(userDetails.getUsername()) && !isTokenExpired(token);
+    }
+
+    /**
+     * Whether the token is a refresh token. A refresh token must not be accepted as an
+     * access token (it lives for days), and an access token must not refresh a session.
+     */
+    public boolean isRefreshToken(String token) {
+        return TYPE_REFRESH.equals(extractClaim(token, claims -> claims.get(CLAIM_TYPE, String.class)));
     }
 
     private boolean isTokenExpired(String token) {

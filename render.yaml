@@ -1,0 +1,90 @@
+# Render Blueprint for the MailFlow backend (Spring Boot API + email worker).
+# The frontend is deployed separately on Vercel (see frontend/vercel.json).
+# Step-by-step guide: docs/DEPLOYMENT.md
+#
+# Values marked `sync: false` are secrets or addresses you enter in the Render
+# dashboard when you create the Blueprint; they are never stored in this file.
+services:
+  - type: web
+    name: mailflow-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Liveness only: a short outage of the database, Redis, RabbitMQ or SMTP must
+    # not make Render restart the app.
+    healthCheckPath: /actuator/health/liveness
+    autoDeploy: true
+    envVars:
+      # ── App ─────────────────────────────────────────────────────────────────
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      - key: JWT_SECRET
+        generateValue: true          # random 256-bit secret, created once by Render
+      - key: DEMO_ACCOUNTS_ENABLED
+        value: "false"
+      - key: FRONTEND_URL            # e.g. https://mailflow.vercel.app (comma-separate several)
+        sync: false
+      - key: APP_BASE_URL            # this service's URL, e.g. https://mailflow-api.onrender.com
+        sync: false
+      # The free instance has 512 MB: keep the heap well below it.
+      - key: JAVA_OPTS
+        value: "-Xss512k -XX:+UseContainerSupport -XX:MaxRAMPercentage=60.0 -XX:+UseSerialGC"
+
+      # ── PostgreSQL (Neon) ───────────────────────────────────────────────────
+      - key: DB_URL                  # jdbc:postgresql://<host>/<db>?sslmode=require
+        sync: false
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_POOL_SIZE
+        value: "5"
+
+      # ── Redis (Upstash) ─────────────────────────────────────────────────────
+      - key: REDIS_HOST
+        sync: false
+      - key: REDIS_PORT
+        value: "6379"
+      - key: REDIS_PASSWORD
+        sync: false
+      - key: REDIS_SSL
+        value: "true"
+
+      # ── RabbitMQ (CloudAMQP) ────────────────────────────────────────────────
+      - key: RABBITMQ_HOST
+        sync: false
+      - key: RABBITMQ_PORT
+        value: "5671"
+      - key: RABBITMQ_SSL
+        value: "true"
+      - key: RABBITMQ_USERNAME
+        sync: false
+      - key: RABBITMQ_PASSWORD
+        sync: false
+      - key: RABBITMQ_VHOST          # on CloudAMQP, the same as the user name
+        sync: false
+
+      # ── Email (Brevo SMTP) ──────────────────────────────────────────────────
+      - key: EMAIL_MODE
+        value: production
+      - key: SMTP_HOST
+        value: smtp-relay.brevo.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_AUTH
+        value: "true"
+      - key: SMTP_TLS
+        value: "true"
+      - key: SMTP_USERNAME           # Brevo SMTP login, e.g. 1234abc@smtp-brevo.com
+        sync: false
+      - key: SMTP_PASSWORD           # Brevo SMTP key (not your Brevo account password)
+        sync: false
+      - key: EMAIL_FROM_POLICY       # From = EMAIL_FROM_ADDRESS; each campaign's sender becomes Reply-To
+        value: platform
+      - key: EMAIL_FROM_ADDRESS      # a sender address verified in Brevo
+        sync: false
+      - key: EMAIL_FROM_NAME
+        value: MailFlow
+      - key: EMAIL_RATE_LIMIT        # per minute; Brevo's free plan allows 300 emails a day
+        value: "20"

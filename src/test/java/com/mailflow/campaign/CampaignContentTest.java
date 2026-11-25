@@ -125,7 +125,7 @@ class CampaignContentTest {
         // The production FreeMarker configuration, built without a Spring context.
         engine = new TemplateEngineService(new FreemarkerConfig().mailflowFreemarkerConfiguration(loader), loader);
 
-        lenient().when(campaignRepository.findById(CAMPAIGN_ID)).thenAnswer(inv -> Optional.ofNullable(stored));
+        lenient().when(campaignRepository.findOneById(CAMPAIGN_ID)).thenAnswer(inv -> Optional.ofNullable(stored));
         lenient().when(campaignRepository.save(any(Campaign.class))).thenAnswer(inv -> {
             Campaign c = inv.getArgument(0);
             if (c.getId() == null) c.setId(CAMPAIGN_ID);
@@ -143,7 +143,7 @@ class CampaignContentTest {
 
     /** A draft that can be launched: its own body, no template, a subject, a sender and one contact. */
     private static Campaign launchable() {
-        return Campaign.builder()
+        return Campaign.builder().organizationId(com.mailflow.tenant.TestTenant.ORG)
                 .id(CAMPAIGN_ID)
                 .name("Welcome")
                 .subject("Hello {{FirstName}}")
@@ -335,7 +335,7 @@ class CampaignContentTest {
     @Test
     void a_campaign_with_its_own_body_and_no_template_can_be_launched() {
         stored = launchable();
-        when(recipientRepository.findByIdsIn(Set.of(10L))).thenReturn(List.of(ada()));
+        when(recipientRepository.findByIdsIn(com.mailflow.tenant.TestTenant.ORG, Set.of(10L))).thenReturn(List.of(ada()));
         when(campaignRecipientRepository.countByCampaignId(CAMPAIGN_ID)).thenReturn(1L);
 
         CampaignResponse launched = campaignService.launch(CAMPAIGN_ID);
@@ -556,13 +556,13 @@ class CampaignContentTest {
         assertThat(column.nullable()).isTrue();
         assertThat(field.getType()).isEqualTo(String.class);
 
-        // V7 is the next version after V6, and nothing else was added.
+        // V7 is the next version after V6; V8 (organizations) is the only later one.
         List<String> versions = new ArrayList<>();
         try (Stream<Path> files = Files.list(migrations)) {
             files.map(p -> p.getFileName().toString()).filter(n -> n.matches("V\\d+__.*\\.sql"))
                     .forEach(n -> versions.add(n.substring(1, n.indexOf("__"))));
         }
-        assertThat(versions.stream().map(Integer::parseInt).sorted().toList()).containsExactly(1, 2, 3, 4, 5, 6, 7);
+        assertThat(versions.stream().map(Integer::parseInt).sorted().toList()).containsExactly(1, 2, 3, 4, 5, 6, 7, 8);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────

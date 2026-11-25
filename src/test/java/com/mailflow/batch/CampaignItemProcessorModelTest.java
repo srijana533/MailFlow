@@ -60,7 +60,7 @@ class CampaignItemProcessorModelTest {
                 .customFields(custom)
                 .build();
 
-        Campaign campaign = Campaign.builder()
+        Campaign campaign = Campaign.builder().organizationId(com.mailflow.tenant.TestTenant.ORG)
                 .id(10L)
                 .subject("Hello {{Name}} from {{Company}}")
                 .senderName("MailFlow")
@@ -76,7 +76,7 @@ class CampaignItemProcessorModelTest {
                 .retryCount(0)
                 .build();
 
-        when(unsubscribeService.isUnsubscribed("ada@example.com")).thenReturn(false);
+        when(unsubscribeService.isUnsubscribed(com.mailflow.tenant.TestTenant.ORG, "ada@example.com")).thenReturn(false);
         // Echo the subject back; capture the model that was passed in.
         when(templateEngine.render(anyString(), any(Map.class)))
                 .thenAnswer(inv -> inv.getArgument(0));

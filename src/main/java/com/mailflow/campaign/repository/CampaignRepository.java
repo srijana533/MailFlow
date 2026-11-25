@@ -34,6 +34,13 @@ public interface CampaignRepository extends JpaRepository<Campaign, Long> {
                            @Param("search") String search,
                            Pageable pageable);
 
+    /**
+     * Campaign by ID as a JPQL query, so Hibernate's organization filter applies (a plain
+     * {@code findById} is a direct load and is not filtered). Use this for every web lookup.
+     */
+    @Query("SELECT c FROM Campaign c WHERE c.id = :id")
+    Optional<Campaign> findOneById(@Param("id") Long id);
+
     List<Campaign> findByStatusIn(List<CampaignStatus> statuses);
 
     /** Every campaign that is not deleted (the dashboard totals). */

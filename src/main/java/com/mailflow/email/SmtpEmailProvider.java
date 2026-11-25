@@ -36,9 +36,20 @@ public class SmtpEmailProvider implements EmailProvider {
      */
     private final String authenticatedUsername;
 
+    /**
+     * Verified platform sender used as From for every email, or empty to use the SMTP
+     * login (Gmail) or, without authentication, the campaign's sender (MailHog).
+     */
+    private final String platformFromAddress;
+
     public SmtpEmailProvider(JavaMailSender mailSender, String authenticatedUsername) {
+        this(mailSender, authenticatedUsername, null);
+    }
+
+    public SmtpEmailProvider(JavaMailSender mailSender, String authenticatedUsername, String platformFromAddress) {
         this.mailSender = mailSender;
         this.authenticatedUsername = authenticatedUsername == null ? "" : authenticatedUsername.trim();
+        this.platformFromAddress = platformFromAddress == null ? "" : platformFromAddress.trim();
     }
 
     @Override
@@ -61,9 +72,8 @@ public class SmtpEmailProvider implements EmailProvider {
             // recipients still reply to the right place.
             String replyTo = request.replyTo();
             if ((replyTo == null || replyTo.isBlank())
-                    && isAuthenticated()
                     && request.from() != null && !request.from().isBlank()
-                    && !request.from().equalsIgnoreCase(authenticatedUsername)) {
+                    && !request.from().equalsIgnoreCase(envelopeFrom)) {
                 replyTo = request.from();
             }
             if (replyTo != null && !replyTo.isBlank()) {
@@ -126,6 +136,9 @@ public class SmtpEmailProvider implements EmailProvider {
      * if, for any reason, no authenticated username is set.
      */
     private String resolveFromAddress(String requestedFrom) {
+        if (!platformFromAddress.isEmpty()) {
+            return platformFromAddress;
+        }
         if (isAuthenticated()) {
             return authenticatedUsername;
         }

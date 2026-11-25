@@ -18,7 +18,8 @@ import java.util.Map;
  * custom fields stored as JSONB for flexibility.
  */
 @Entity
-@Table(name = "recipients")
+@Table(name = "recipients",
+       uniqueConstraints = @UniqueConstraint(name = "uq_recipients_org_email", columnNames = {"organization_id", "email"}))
 @Getter
 @Setter
 @NoArgsConstructor
@@ -30,7 +31,12 @@ public class Recipient {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true)
+    /** Owning organization. Set and filtered by Hibernate from the signed-in user (see TenantIdentifierResolver). */
+    @org.hibernate.annotations.TenantId
+    @Column(name = "organization_id", nullable = false, updatable = false)
+    private Long organizationId;
+
+    @Column(nullable = false)
     private String email;
 
     private String name;

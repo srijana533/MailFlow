@@ -64,9 +64,13 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/register", "/api/auth/refresh").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/unsubscribe/**").permitAll()
                 .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
-                .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                .requestMatchers("/actuator/health", "/actuator/health/liveness", "/actuator/health/readiness", "/actuator/info").permitAll()
+                // A 403 (or any error) is forwarded to /error to render its body. That
+                // dispatch has no JWT, so without this the 403 turned into a 401, which
+                // the frontend treats as an expired session and signs the user out.
+                .requestMatchers("/error").permitAll()
                 // Role-restricted
-                .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                .requestMatchers("/api/admin/**", "/api/team/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.GET, "/api/campaigns/**",
                                                "/api/analytics/**",
                                                "/api/templates/**",

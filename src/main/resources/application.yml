@@ -10,14 +10,18 @@ spring:
     driver-class-name: org.postgresql.Driver
     hikari:
       pool-name: MailFlowPool
-      maximum-pool-size: 20
-      minimum-idle: 5
+      # Hosted free databases (Neon) allow few connections: set DB_POOL_SIZE=5 there.
+      maximum-pool-size: ${DB_POOL_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:2}
       connection-timeout: 30000
       idle-timeout: 600000
       max-lifetime: 1800000
 
   # ── JPA / Hibernate ───────────────────────────────────────────────────────
   jpa:
+    # Company isolation relies on this: the request's Hibernate session is opened after
+    # the security filter signs the user in, so it is filtered to their organization.
+    open-in-view: true
     hibernate:
       ddl-auto: validate          # Flyway owns schema creation
     show-sql: false
@@ -30,6 +34,8 @@ spring:
           batch_size: 50
         order_inserts: true
         order_updates: true
+        # Fills and filters each entity's @TenantId (organization) from the signed-in user.
+        tenant_identifier_resolver: com.mailflow.tenant.TenantIdentifierResolver
 
   # ── Flyway ─────────────────────────────────────────────────────────────────
   flyway:
@@ -51,7 +57,8 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USERNAME:guest}
     password: ${RABBITMQ_PASSWORD:guest}
-    virtual-host: /
+    # CloudAMQP: the virtual host is your instance's user name; set RABBITMQ_SSL=true with port 5671.
+    virtual-host: ${RABBITMQ_VHOST:/}
     # connection-timeout=0 means wait indefinitely but lazy=true means
     # the connection is only established when first needed, not on startup.
     # This allows the app to start even when RabbitMQ is temporarily unavailable.
@@ -79,7 +86,10 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
-      timeout: 2000
+      # Upstash and most hosted Redis require TLS: REDIS_SSL=true
+      ssl:
+        enabled: ${REDIS_SSL:false}
+      timeout: 5000
       lettuce:
         pool:
           max-active: 16
@@ -142,7 +152,8 @@ spring:
 
 # ── Server ────────────────────────────────────────────────────────────────────
 server:
-  port: ${SERVER_PORT:8080}
+  # Render and similar hosts tell the app which port to use through PORT.
+  port: ${PORT:${SERVER_PORT:8080}}
   error:
     include-message: always
     include-binding-errors: always
@@ -158,6 +169,11 @@ management:
       base-path: /actuator
   endpoint:
     health:
+      # /actuator/health/liveness answers UP while the app runs, whatever the state of the
+      # database, Redis, RabbitMQ or SMTP: the host's health check uses it, so a short
+      # outage of one of those does not get the app restarted.
+      probes:
+        enabled: true
       show-details: when_authorized
       show-components: when_authorized
   info:
@@ -181,6 +197,8 @@ mailflow:
       secret: ${JWT_SECRET:change-me-in-production-must-be-at-least-256-bits-long-secret-key}
       access-token-expiry-ms: ${JWT_ACCESS_EXPIRY_MS:3600000}      # 1 hour
       refresh-token-expiry-ms: ${JWT_REFRESH_EXPIRY_MS:604800000}  # 7 days
+    # Seeded demo accounts with published passwords. false on any public deployment.
+    demo-accounts-enabled: ${DEMO_ACCOUNTS_ENABLED:true}
 
   # ── Email Engine ──────────────────────────────────────────────────────────
   email:
@@ -188,6 +206,7 @@ mailflow:
     from-address: ${EMAIL_FROM_ADDRESS:noreply@mailflow.local}
     rate-limit-per-minute: ${EMAIL_RATE_LIMIT:100}
     mode: ${EMAIL_MODE:development}   # development | production
+    from-policy: ${EMAIL_FROM_POLICY:smtp-username}   # smtp-username (Gmail) | platform (Brevo, SES)
 
   # ── Batch ─────────────────────────────────────────────────────────────────
   batch:

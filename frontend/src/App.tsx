@@ -4,6 +4,8 @@ import { useAuthStore } from './store/authStore';
 
 // Pages
 import LoginPage from './pages/LoginPage';
+import SignUpPage from './pages/SignUpPage';
+import TeamPage from './pages/TeamPage';
 import DashboardPage from './pages/DashboardPage';
 import CampaignsPage from './pages/CampaignsPage';
 import CampaignDetailPage from './pages/CampaignDetailPage';
@@ -28,6 +30,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignUpPage />} />
         <Route
           path="/"
           element={
@@ -43,6 +46,7 @@ export default function App() {
           <Route path="recipients"   element={<RecipientsPage />} />
           <Route path="templates"    element={<TemplatesPage />} />
           <Route path="analytics"    element={<AnalyticsPage />} />
+          <Route path="team"         element={<TeamPage />} />
         </Route>
         {/* Catch-all: redirect unknown paths to the dashboard (or login if unauthenticated) */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

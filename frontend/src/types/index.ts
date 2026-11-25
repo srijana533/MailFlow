@@ -5,6 +5,22 @@ export interface UserInfo {
   firstName: string;
   lastName: string;
   roles: string[];
+  /** The user's company workspace. */
+  organizationId?: number;
+  organizationName?: string;
+}
+
+/** A person in the signed-in Admin's company (Team page). */
+export type TeamRole = 'ADMIN' | 'CAMPAIGN_MANAGER' | 'VIEWER';
+
+export interface TeamMember {
+  id: number;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: TeamRole;
+  enabled: boolean;
+  createdAt: string;
 }
 
 export interface AuthResponse {

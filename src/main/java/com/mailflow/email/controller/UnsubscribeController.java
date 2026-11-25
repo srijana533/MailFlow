@@ -32,11 +32,12 @@ public class UnsubscribeController {
     }
 
     @PostMapping
-    @Operation(summary = "Unsubscribe an email address directly")
+    @Operation(summary = "Add an email address to your organization's unsubscribe list")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('ADMIN','CAMPAIGN_MANAGER')")
     public ResponseEntity<Void> unsubscribe(
             @RequestParam String email,
             @RequestParam(required = false) String reason) {
-        unsubscribeService.unsubscribe(email, reason, null);
+        unsubscribeService.unsubscribe(com.mailflow.tenant.TenantContext.requireOrganizationId(), email, reason, null);
         return ResponseEntity.ok().build();
     }
 

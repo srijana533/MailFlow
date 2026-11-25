@@ -48,7 +48,7 @@ class CampaignOnlyReaderQueryTest {
         try (Connection c = DriverManager.getConnection(URL, "sa", "");
              Statement s = c.createStatement()) {
             s.execute("""
-                    CREATE TABLE recipients (
+                    CREATE TABLE recipients (organization_id BIGINT, 
                         id BIGINT PRIMARY KEY, email VARCHAR(255) NOT NULL, name VARCHAR(255),
                         first_name VARCHAR(100), last_name VARCHAR(100), company VARCHAR(255),
                         course VARCHAR(255), custom_fields JSON, status VARCHAR(50) NOT NULL,
@@ -100,10 +100,11 @@ class CampaignOnlyReaderQueryTest {
                 .applySetting("hibernate.connection.username", "sa")
                 .applySetting("hibernate.connection.password", "")
                 .applySetting("hibernate.hbm2ddl.auto", "none")
+                .applySetting("hibernate.tenant_identifier_resolver", new com.mailflow.tenant.TenantIdentifierResolver())
                 .build();
         sessionFactory = new MetadataSources(registry)
                 .addAnnotatedClasses(Campaign.class, CampaignRecipient.class, CampaignTargetAddress.class,
-                        Recipient.class, EmailTemplate.class, User.class, Role.class)
+                        Recipient.class, EmailTemplate.class, User.class, Role.class, com.mailflow.organization.entity.Organization.class)
                 .buildMetadata()
                 .buildSessionFactory();
     }

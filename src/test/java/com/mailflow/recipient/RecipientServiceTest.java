@@ -28,6 +28,16 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class RecipientServiceTest {
 
+    @org.junit.jupiter.api.BeforeEach
+    void signInTestOrganization() {
+        com.mailflow.tenant.TestTenant.signIn();
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void signOutTestOrganization() {
+        com.mailflow.tenant.TestTenant.signOut();
+    }
+
     @Mock private RecipientRepository recipientRepository;
     @Mock private UnsubscribeRepository unsubscribeRepository;
     @InjectMocks private RecipientService recipientService;
@@ -86,7 +96,7 @@ class RecipientServiceTest {
 
     @Test
     void finds_recipient_by_id() {
-        when(recipientRepository.findById(1L)).thenReturn(Optional.of(sampleRecipient));
+        when(recipientRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(sampleRecipient));
         RecipientResponse response = recipientService.findById(1L);
         assertThat(response.id()).isEqualTo(1L);
         assertThat(response.email()).isEqualTo("test@example.com");
@@ -94,7 +104,7 @@ class RecipientServiceTest {
 
     @Test
     void soft_deletes_recipient() {
-        when(recipientRepository.findById(1L)).thenReturn(Optional.of(sampleRecipient));
+        when(recipientRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(sampleRecipient));
         when(recipientRepository.save(any(Recipient.class))).thenReturn(sampleRecipient);
 
         recipientService.delete(1L);
@@ -109,11 +119,11 @@ class RecipientServiceTest {
         when(recipientRepository.findByIdInAndDeletedAtIsNull(java.util.Set.of(1L, 99L)))
                 .thenReturn(java.util.List.of(sampleRecipient));
         // Emails are normalised (trim + lower-case); invalid ones are ignored.
-        when(recipientRepository.findByEmailIn(java.util.List.of("grace@example.com", "old@example.com")))
+        when(recipientRepository.findByEmailIn(com.mailflow.tenant.TestTenant.ORG, java.util.List.of("grace@example.com", "old@example.com")))
                 .thenReturn(java.util.List.of(byEmail));
-        when(recipientRepository.findDeletedEmails(java.util.List.of("grace@example.com", "old@example.com")))
+        when(recipientRepository.findDeletedEmails(com.mailflow.tenant.TestTenant.ORG, java.util.List.of("grace@example.com", "old@example.com")))
                 .thenReturn(java.util.List.of("old@example.com"));
-        when(unsubscribeRepository.findEmailsIn(java.util.List.of("grace@example.com", "old@example.com")))
+        when(unsubscribeRepository.findEmailsIn(com.mailflow.tenant.TestTenant.ORG, java.util.List.of("grace@example.com", "old@example.com")))
                 .thenReturn(java.util.List.of("grace@example.com"));
 
         var response = recipientService.lookup(new com.mailflow.recipient.dto.RecipientLookupRequest(
@@ -156,7 +166,7 @@ class RecipientServiceTest {
 
     @Test
     void update_compares_and_stores_the_normalised_email() {
-        when(recipientRepository.findById(1L)).thenReturn(Optional.of(sampleRecipient));
+        when(recipientRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(sampleRecipient));
         when(recipientRepository.save(any(Recipient.class))).thenAnswer(inv -> inv.getArgument(0));
 
         // Same address, other spelling: no "already in use" check against itself.

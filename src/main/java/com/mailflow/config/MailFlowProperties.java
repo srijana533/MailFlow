@@ -51,6 +51,13 @@ public class MailFlowProperties {
             private long accessTokenExpiryMs = 3_600_000L;
             private long refreshTokenExpiryMs = 604_800_000L;
         }
+
+        /**
+         * Whether the seeded demo accounts (admin@/manager@/viewer@mailflow.local, whose
+         * passwords are published in the README) may sign in. Must be false on any public
+         * deployment; see DemoAccountGuard.
+         */
+        private boolean demoAccountsEnabled = true;
     }
 
     @Data
@@ -63,6 +70,17 @@ public class MailFlowProperties {
 
         /** "development" uses fake SMTP; "production" uses real SMTP */
         private String mode = "development";
+
+        /**
+         * Which address goes in From when sending over authenticated SMTP:
+         * <ul>
+         *   <li>{@code smtp-username} (default): the SMTP login, as Gmail requires;</li>
+         *   <li>{@code platform}: {@link #fromAddress}, a sender verified with the provider
+         *       (Brevo, SES), for when the SMTP login is not an email address.</li>
+         * </ul>
+         * Either way the campaign's own sender address becomes the Reply-To.
+         */
+        private String fromPolicy = "smtp-username";
     }
 
     @Data

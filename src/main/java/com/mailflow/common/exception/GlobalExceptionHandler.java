@@ -87,6 +87,17 @@ public class GlobalExceptionHandler {
                                    "Invalid credentials", req.getRequestURI()));
     }
 
+    /** Sign-in by a user their company's Admin has disabled (or a removed user). */
+    @ExceptionHandler(org.springframework.security.authentication.AccountStatusException.class)
+    public ResponseEntity<ApiError> handleAccountStatus(
+            org.springframework.security.authentication.AccountStatusException ex, HttpServletRequest req) {
+        return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(new ApiError(HttpStatus.UNAUTHORIZED.value(), "ACCOUNT_DISABLED",
+                                   "This account has been disabled. Contact your company's admin.",
+                                   req.getRequestURI()));
+    }
+
     // ── Concurrency / data conflicts ───────────────────────────────────────
 
     /**

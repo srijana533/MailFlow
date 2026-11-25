@@ -315,10 +315,10 @@ public class CampaignService {
         Set<Recipient> resolvedRecipients = new LinkedHashSet<>();
 
         if (hasDirectRecipients(campaign)) {
-            resolvedRecipients.addAll(recipientRepository.findByIdsIn(campaign.getRecipientIds()));
+            resolvedRecipients.addAll(recipientRepository.findByIdsIn(campaign.getOrganizationId(), campaign.getRecipientIds()));
         }
         if (hasGroupRecipients(campaign)) {
-            resolvedRecipients.addAll(recipientRepository.findByGroupIds(campaign.getRecipientGroupIds()));
+            resolvedRecipients.addAll(recipientRepository.findByGroupIds(campaign.getOrganizationId(), campaign.getRecipientGroupIds()));
         }
 
         // Normalised addresses that already have a delivery row IN THIS CAMPAIGN (a
@@ -339,7 +339,7 @@ public class CampaignService {
             if (r.getEmail() == null || r.getEmail().isBlank() || !r.getEmail().contains("@")) {
                 continue;
             }
-            if (unsubscribeService.isUnsubscribed(r.getEmail())) {
+            if (unsubscribeService.isUnsubscribed(campaign.getOrganizationId(), r.getEmail())) {
                 continue;
             }
             if (!claimed.add(EmailValidator.normalize(r.getEmail()))) {
@@ -453,7 +453,7 @@ public class CampaignService {
 
     /** A campaign that exists and isn't deleted; 404 otherwise, so a deleted campaign is gone for every action. */
     public Campaign getOrThrow(Long id) {
-        return campaignRepository.findById(id)
+        return campaignRepository.findOneById(id)
                 .filter(c -> !c.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("Campaign", id));
     }
@@ -571,11 +571,11 @@ public class CampaignService {
 
         List<String> emails = addresses.stream().map(CampaignTargetAddress::getEmail).toList();
         Map<String, Recipient> contacts = new HashMap<>();
-        for (Recipient r : recipientRepository.findByEmailIn(emails)) {
+        for (Recipient r : recipientRepository.findByEmailIn(campaign.getOrganizationId(), emails)) {
             contacts.put(EmailValidator.normalize(r.getEmail()), r);
         }
         Set<String> deletedContacts = new HashSet<>();
-        for (String e : recipientRepository.findDeletedEmails(emails)) {
+        for (String e : recipientRepository.findDeletedEmails(campaign.getOrganizationId(), emails)) {
             deletedContacts.add(EmailValidator.normalize(e));
         }
 
@@ -586,7 +586,7 @@ public class CampaignService {
 
             Recipient contact = contacts.get(email);
             if (contact != null) {
-                if (contact.getStatus() != RecipientStatus.ACTIVE || unsubscribeService.isUnsubscribed(email)) {
+                if (contact.getStatus() != RecipientStatus.ACTIVE || unsubscribeService.isUnsubscribed(campaign.getOrganizationId(), email)) {
                     continue;
                 }
                 claimed.add(email);
@@ -595,7 +595,7 @@ public class CampaignService {
                 }
                 continue;
             }
-            if (deletedContacts.contains(email) || unsubscribeService.isUnsubscribed(email)) {
+            if (deletedContacts.contains(email) || unsubscribeService.isUnsubscribed(campaign.getOrganizationId(), email)) {
                 continue;
             }
             claimed.add(email);

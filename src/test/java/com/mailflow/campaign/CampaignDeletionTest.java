@@ -135,6 +135,16 @@ import static org.mockito.Mockito.when;
  */
 class CampaignDeletionTest {
 
+    @org.junit.jupiter.api.BeforeEach
+    void signInTestOrganization() {
+        com.mailflow.tenant.TestTenant.signIn();
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void signOutTestOrganization() {
+        com.mailflow.tenant.TestTenant.signOut();
+    }
+
     private static final String URL = "jdbc:h2:mem:campaign_deletion;DB_CLOSE_DELAY=-1";
     private static final long MANAGER_ID = 42L;
 
@@ -162,7 +172,7 @@ class CampaignDeletionTest {
         try (Connection c = DriverManager.getConnection(URL, "sa", "");
              Statement s = c.createStatement()) {
             s.execute("""
-                    CREATE TABLE campaigns (
+                    CREATE TABLE campaigns (organization_id BIGINT DEFAULT 1, 
                         id BIGINT PRIMARY KEY, name VARCHAR(255) NOT NULL, description VARCHAR(1000),
                         subject VARCHAR(1000) NOT NULL, template_id BIGINT, sender_name VARCHAR(255),
                         sender_email VARCHAR(255), reply_to VARCHAR(255), status VARCHAR(50) NOT NULL,
@@ -176,14 +186,14 @@ class CampaignDeletionTest {
                         deleted_at TIMESTAMP WITH TIME ZONE, deleted_by BIGINT,
                         custom_body VARCHAR(100000))""");
             s.execute("""
-                    CREATE TABLE email_templates (
+                    CREATE TABLE email_templates (organization_id BIGINT DEFAULT 1, 
                         id BIGINT PRIMARY KEY, name VARCHAR(255) NOT NULL, description VARCHAR(1000),
                         subject VARCHAR(1000) NOT NULL, html_body VARCHAR(10000), plain_body VARCHAR(10000),
                         variables JSON, created_by BIGINT, created_at TIMESTAMP WITH TIME ZONE,
                         updated_at TIMESTAMP WITH TIME ZONE, deleted_at TIMESTAMP WITH TIME ZONE,
                         version BIGINT NOT NULL)""");
             s.execute("""
-                    CREATE TABLE recipients (
+                    CREATE TABLE recipients (organization_id BIGINT DEFAULT 1, 
                         id BIGINT PRIMARY KEY, email VARCHAR(255) NOT NULL UNIQUE, name VARCHAR(255),
                         first_name VARCHAR(100), last_name VARCHAR(100), company VARCHAR(255),
                         course VARCHAR(255), custom_fields JSON, status VARCHAR(50) NOT NULL,
@@ -191,7 +201,7 @@ class CampaignDeletionTest {
                         updated_at TIMESTAMP WITH TIME ZONE, deleted_at TIMESTAMP WITH TIME ZONE,
                         version BIGINT NOT NULL)""");
             s.execute("""
-                    CREATE TABLE recipient_groups (
+                    CREATE TABLE recipient_groups (organization_id BIGINT DEFAULT 1, 
                         id BIGINT PRIMARY KEY, name VARCHAR(255) NOT NULL, description VARCHAR(1000),
                         created_by BIGINT, created_at TIMESTAMP WITH TIME ZONE, updated_at TIMESTAMP WITH TIME ZONE)""");
             s.execute("""
@@ -237,7 +247,7 @@ class CampaignDeletionTest {
                         provider_message_id VARCHAR(500), error_message VARCHAR(1000), error_type VARCHAR(100),
                         attempt_number INT NOT NULL, processed_at TIMESTAMP WITH TIME ZONE NOT NULL)""");
             s.execute("""
-                    CREATE TABLE unsubscribe_list (
+                    CREATE TABLE unsubscribe_list (organization_id BIGINT DEFAULT 1, 
                         id BIGINT PRIMARY KEY, email VARCHAR(255) NOT NULL UNIQUE, token VARCHAR(64) NOT NULL,
                         reason VARCHAR(1000), unsubscribed_at TIMESTAMP WITH TIME ZONE NOT NULL,
                         campaign_id BIGINT REFERENCES campaigns(id))""");
@@ -248,11 +258,12 @@ class CampaignDeletionTest {
                 .applySetting("hibernate.connection.username", "sa")
                 .applySetting("hibernate.connection.password", "")
                 .applySetting("hibernate.hbm2ddl.auto", "none")
+                .applySetting("hibernate.tenant_identifier_resolver", new com.mailflow.tenant.TenantIdentifierResolver())
                 .build();
         sessionFactory = new MetadataSources(registry)
                 .addAnnotatedClasses(Campaign.class, CampaignRecipient.class, CampaignTargetAddress.class,
                         Recipient.class, RecipientGroup.class, EmailTemplate.class, EmailLog.class,
-                        UnsubscribeEntry.class, User.class, Role.class)
+                        UnsubscribeEntry.class, User.class, Role.class, com.mailflow.organization.entity.Organization.class)
                 .buildMetadata()
                 .buildSessionFactory();
 

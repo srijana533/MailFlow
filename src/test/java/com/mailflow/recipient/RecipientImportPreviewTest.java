@@ -50,6 +50,16 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class RecipientImportPreviewTest {
 
+    @org.junit.jupiter.api.BeforeEach
+    void signInTestOrganization() {
+        com.mailflow.tenant.TestTenant.signIn();
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void signOutTestOrganization() {
+        com.mailflow.tenant.TestTenant.signOut();
+    }
+
     @Mock private RecipientRepository recipientRepository;
     @Mock private UnsubscribeRepository unsubscribeRepository;
     @InjectMocks private RecipientImportService importService;
@@ -125,7 +135,7 @@ class RecipientImportPreviewTest {
     @Test
     void preview_marks_saved_contacts_as_existing_with_their_id() throws IOException {
         // grace is already a saved contact: she is reused, not reported as a problem
-        when(recipientRepository.findByEmailIn(anyList()))
+        when(recipientRepository.findByEmailIn(any(), anyList()))
                 .thenReturn(List.of(saved(42L, "grace@example.com", RecipientStatus.ACTIVE)));
 
         MockMultipartFile file = excel(
@@ -153,7 +163,7 @@ class RecipientImportPreviewTest {
 
     @Test
     void preview_skips_saved_contacts_that_are_not_active_and_says_why() throws IOException {
-        when(recipientRepository.findByEmailIn(anyList())).thenReturn(List.of(
+        when(recipientRepository.findByEmailIn(any(), anyList())).thenReturn(List.of(
                 saved(7L, "gone@example.com", RecipientStatus.UNSUBSCRIBED),
                 saved(8L, "bounced@example.com", RecipientStatus.BOUNCED),
                 saved(9L, "bad@example.com", RecipientStatus.INVALID)));
@@ -178,9 +188,9 @@ class RecipientImportPreviewTest {
     void preview_skips_addresses_on_the_unsubscribe_list_and_says_why() throws IOException {
         // A saved ACTIVE contact whose address is on the unsubscribe list, and an address
         // that is only on the list. Both are skipped when sending, so neither is Valid.
-        when(recipientRepository.findByEmailIn(anyList()))
+        when(recipientRepository.findByEmailIn(any(), anyList()))
                 .thenReturn(List.of(saved(5L, "listed@example.com", RecipientStatus.ACTIVE)));
-        when(unsubscribeRepository.findEmailsIn(anyList()))
+        when(unsubscribeRepository.findEmailsIn(any(), anyList()))
                 .thenReturn(List.of("listed@example.com", "optout@example.com"));
 
         ExcelPreviewResponse res = importService.previewExcel(excel(
@@ -201,7 +211,7 @@ class RecipientImportPreviewTest {
 
     @Test
     void preview_normalises_addresses_before_matching_and_returns_the_normalised_address() throws IOException {
-        when(recipientRepository.findByEmailIn(List.of("grace@example.com", "ada@example.com")))
+        when(recipientRepository.findByEmailIn(com.mailflow.tenant.TestTenant.ORG, List.of("grace@example.com", "ada@example.com")))
                 .thenReturn(List.of(saved(42L, "grace@example.com", RecipientStatus.ACTIVE)));
 
         ExcelPreviewResponse res = importService.previewExcel(excel(
@@ -218,7 +228,7 @@ class RecipientImportPreviewTest {
         assertThat(res.rows()).extracting(ExcelRowPreview::email)
                 .containsExactly("grace@example.com", "grace@example.com", "ada@example.com");
         assertThat(res.rows().get(2).fields()).containsEntry("email", "ada@example.com");
-        verify(unsubscribeRepository).findEmailsIn(List.of("grace@example.com", "ada@example.com"));
+        verify(unsubscribeRepository).findEmailsIn(com.mailflow.tenant.TestTenant.ORG, List.of("grace@example.com", "ada@example.com"));
     }
 
     @Test
@@ -251,7 +261,7 @@ class RecipientImportPreviewTest {
     @Test
     void preview_rejects_addresses_of_deleted_contacts() throws IOException {
         // The email column is unique across deleted rows too, so these can't be re-created.
-        when(recipientRepository.findDeletedEmails(anyList())).thenReturn(List.of("old@example.com"));
+        when(recipientRepository.findDeletedEmails(any(), anyList())).thenReturn(List.of("old@example.com"));
 
         ExcelPreviewResponse res = importService.previewExcel(excel(
                 "contacts.xlsx", new String[] {"Email"},
@@ -511,7 +521,7 @@ class RecipientImportPreviewTest {
     void bulk_creates_new_and_reuses_existing_by_email() {
         Recipient existing = Recipient.builder()
                 .id(42L).email("grace@example.com").name("Grace").build();
-        when(recipientRepository.findByEmailIn(anyList())).thenReturn(List.of(existing));
+        when(recipientRepository.findByEmailIn(any(), anyList())).thenReturn(List.of(existing));
         // saveAll returns the created recipients with assigned IDs
         when(recipientRepository.saveAll(anyList())).thenAnswer(inv -> {
             List<Recipient> arg = inv.getArgument(0);
@@ -540,7 +550,7 @@ class RecipientImportPreviewTest {
 
     @Test
     void bulk_deduplicates_within_request() {
-        when(recipientRepository.findByEmailIn(anyList())).thenReturn(List.of());
+        when(recipientRepository.findByEmailIn(any(), anyList())).thenReturn(List.of());
         when(recipientRepository.saveAll(anyList())).thenAnswer(inv -> {
             List<Recipient> arg = inv.getArgument(0);
             long id = 1;
@@ -562,8 +572,8 @@ class RecipientImportPreviewTest {
 
     @Test
     void bulk_skips_deleted_contacts_instead_of_failing_or_reactivating_them() {
-        when(recipientRepository.findByEmailIn(anyList())).thenReturn(List.of());
-        when(recipientRepository.findDeletedEmails(anyList())).thenReturn(List.of("old@example.com"));
+        when(recipientRepository.findByEmailIn(any(), anyList())).thenReturn(List.of());
+        when(recipientRepository.findDeletedEmails(any(), anyList())).thenReturn(List.of("old@example.com"));
         when(recipientRepository.saveAll(anyList())).thenAnswer(inv -> {
             List<Recipient> arg = inv.getArgument(0);
             long id = 500;
@@ -589,7 +599,7 @@ class RecipientImportPreviewTest {
     @Test
     void bulk_normalises_invisible_characters_and_reuses_the_saved_contact() {
         Recipient grace = Recipient.builder().id(42L).email("grace@example.com").build();
-        when(recipientRepository.findByEmailIn(List.of("grace@example.com"))).thenReturn(List.of(grace));
+        when(recipientRepository.findByEmailIn(com.mailflow.tenant.TestTenant.ORG, List.of("grace@example.com"))).thenReturn(List.of(grace));
         when(recipientRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
         BulkRecipientResponse res = importService.bulkCreateOrReuse(new BulkRecipientRequest(List.of(

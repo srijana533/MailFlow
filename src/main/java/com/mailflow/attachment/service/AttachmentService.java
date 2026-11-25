@@ -93,7 +93,7 @@ public class AttachmentService {
     }
 
     public Attachment getOrThrow(Long id) {
-        return attachmentRepository.findById(id)
+        return attachmentRepository.findOneById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Attachment", id));
     }
 

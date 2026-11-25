@@ -67,6 +67,11 @@ public class User implements UserDetails {
     @Column(nullable = false)
     private long version;
 
+    /** The company workspace this user belongs to. Loaded eagerly: every request needs it. */
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "organization_id")
+    private com.mailflow.organization.entity.Organization organization;
+
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(
         name = "user_roles",
@@ -106,6 +111,10 @@ public class User implements UserDetails {
 
     @Override
     public boolean isEnabled()            { return enabled; }
+
+    public Long getOrganizationId() {
+        return organization != null ? organization.getId() : null;
+    }
 
     public String getFullName() {
         return firstName + " " + lastName;

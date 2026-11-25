@@ -102,6 +102,16 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class RecipientReuseTest {
 
+    @org.junit.jupiter.api.BeforeEach
+    void signInTestOrganization() {
+        com.mailflow.tenant.TestTenant.signIn();
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void signOutTestOrganization() {
+        com.mailflow.tenant.TestTenant.signOut();
+    }
+
     private static final long CAMPAIGN_A = 31L;
     private static final long CAMPAIGN_B = 32L;
 
@@ -145,7 +155,7 @@ class RecipientReuseTest {
         lenient().when(campaignRecipientRepository.existsByCampaignIdAndRecipientId(CAMPAIGN_A, 10L)).thenReturn(true);
 
         // Upload for campaign B: ada is Valid (a saved contact), not Duplicate.
-        when(recipientRepository.findByEmailIn(List.of("ada@test.local"))).thenReturn(List.of(ada));
+        when(recipientRepository.findByEmailIn(com.mailflow.tenant.TestTenant.ORG, List.of("ada@test.local"))).thenReturn(List.of(ada));
         ExcelPreviewResponse preview = importService.previewExcel(xlsx(new String[] {"Email"}, new String[][] {{"ada@test.local"}}));
         assertThat(preview.validRows()).isEqualTo(1);
         assertThat(preview.existingRows()).isEqualTo(1);
@@ -160,8 +170,8 @@ class RecipientReuseTest {
         // Launching B gives ada a row of B's own; only B's rows are consulted.
         Campaign b = draft(CAMPAIGN_B);
         b.setRecipientIds(new HashSet<>(Set.of(10L)));
-        when(campaignRepository.findById(CAMPAIGN_B)).thenReturn(Optional.of(b));
-        when(recipientRepository.findByIdsIn(Set.of(10L))).thenReturn(List.of(ada));
+        when(campaignRepository.findOneById(CAMPAIGN_B)).thenReturn(Optional.of(b));
+        when(recipientRepository.findByIdsIn(com.mailflow.tenant.TestTenant.ORG, Set.of(10L))).thenReturn(List.of(ada));
         when(campaignRecipientRepository.countByCampaignId(CAMPAIGN_B)).thenReturn(1L);
 
         campaignService.launch(CAMPAIGN_B);
@@ -187,7 +197,7 @@ class RecipientReuseTest {
                 {"reuse.two@test.local", "Reuse Two", "Reuse", "Two", "Test Co", "Analyst", "+1-555-0102", "Delhi", "Data"},
                 {"reuse.three@test.local", "Reuse Three", "Reuse", "Three", "Test Co", "Manager", "+1-555-0103", "Goa", "Ops"},
         };
-        when(recipientRepository.findByEmailIn(List.of("reuse.one@test.local", "reuse.two@test.local", "reuse.three@test.local")))
+        when(recipientRepository.findByEmailIn(com.mailflow.tenant.TestTenant.ORG, List.of("reuse.one@test.local", "reuse.two@test.local", "reuse.three@test.local")))
                 .thenReturn(List.of(
                         contact(1L, "reuse.one@test.local", RecipientStatus.ACTIVE),
                         contact(2L, "reuse.two@test.local", RecipientStatus.ACTIVE),
@@ -215,7 +225,7 @@ class RecipientReuseTest {
 
     @Test
     void item03_duplicate_means_only_a_repeat_inside_the_same_file_and_names_the_first_row() {
-        when(recipientRepository.findByEmailIn(List.of("saved@test.local", "new@test.local", "other@test.local")))
+        when(recipientRepository.findByEmailIn(com.mailflow.tenant.TestTenant.ORG, List.of("saved@test.local", "new@test.local", "other@test.local")))
                 .thenReturn(List.of(
                         contact(1L, "saved@test.local", RecipientStatus.ACTIVE),
                         contact(2L, "other@test.local", RecipientStatus.ACTIVE)));
@@ -243,7 +253,7 @@ class RecipientReuseTest {
 
     @Test
     void item04_every_invalid_row_has_its_own_reason_and_the_counts_add_up() {
-        when(recipientRepository.findDeletedEmails(anyList())).thenReturn(List.of("gone@test.local"));
+        when(recipientRepository.findDeletedEmails(any(), anyList())).thenReturn(List.of("gone@test.local"));
 
         ExcelPreviewResponse res = importService.previewExcel(xlsx(new String[] {"Email", "Name"}, new String[][] {
                 {"not-an-email", "Bad"},
@@ -276,7 +286,7 @@ class RecipientReuseTest {
         String zeroWidth = "\u200BADA@test.local\uFEFF";
         String wordJoiner = "ada@test.local\u2060";
         Recipient ada = contact(10L, "ada@test.local", RecipientStatus.ACTIVE);
-        when(recipientRepository.findByEmailIn(List.of("ada@test.local"))).thenReturn(List.of(ada));
+        when(recipientRepository.findByEmailIn(com.mailflow.tenant.TestTenant.ORG, List.of("ada@test.local"))).thenReturn(List.of(ada));
 
         // Upload preview: all three spellings are one address, the saved contact.
         ExcelPreviewResponse preview = importService.previewExcel(
@@ -317,8 +327,8 @@ class RecipientReuseTest {
         assertThat(CampaignRecipient.buildAddressIdempotencyKey(CAMPAIGN_A, nbsp))
                 .isEqualTo(CampaignRecipient.buildAddressIdempotencyKey(CAMPAIGN_A, zeroWidth))
                 .isEqualTo(CampaignRecipient.buildAddressIdempotencyKey(CAMPAIGN_A, "ada@test.local"));
-        new UnsubscribeService(unsubscribeRepository, recipientRepository).isUnsubscribed(zeroWidth);
-        verify(unsubscribeRepository).existsByEmailIgnoreCase("ada@test.local");
+        new UnsubscribeService(unsubscribeRepository, recipientRepository).isUnsubscribed(com.mailflow.tenant.TestTenant.ORG, zeroWidth);
+        verify(unsubscribeRepository).existsByOrganizationIdAndEmailIgnoreCase(com.mailflow.tenant.TestTenant.ORG, "ada@test.local");
 
         verify(recipientRepository, never()).save(any());
     }
@@ -328,7 +338,7 @@ class RecipientReuseTest {
     @Test
     void item06_reusing_an_address_never_creates_a_second_contact() {
         Recipient grace = contact(42L, "grace@test.local", RecipientStatus.ACTIVE);
-        when(recipientRepository.findByEmailIn(List.of("grace@test.local", "new@test.local"))).thenReturn(List.of(grace));
+        when(recipientRepository.findByEmailIn(com.mailflow.tenant.TestTenant.ORG, List.of("grace@test.local", "new@test.local"))).thenReturn(List.of(grace));
         when(recipientRepository.saveAll(anyList())).thenAnswer(inv -> {
             List<Recipient> created = inv.getArgument(0);
             created.forEach(r -> r.setId(500L));
@@ -347,11 +357,11 @@ class RecipientReuseTest {
 
         // A campaign-only address that matches a contact resolves to that contact at launch.
         Campaign a = draft(CAMPAIGN_A);
-        when(campaignRepository.findById(CAMPAIGN_A)).thenReturn(Optional.of(a));
+        when(campaignRepository.findOneById(CAMPAIGN_A)).thenReturn(Optional.of(a));
         when(targetAddressRepository.countByCampaignId(CAMPAIGN_A)).thenReturn(1L);
         when(targetAddressRepository.findByCampaignIdOrderByIdAsc(CAMPAIGN_A))
                 .thenReturn(List.of(stored(CAMPAIGN_A, "grace@test.local")));
-        when(recipientRepository.findByEmailIn(List.of("grace@test.local"))).thenReturn(List.of(grace));
+        when(recipientRepository.findByEmailIn(com.mailflow.tenant.TestTenant.ORG, List.of("grace@test.local"))).thenReturn(List.of(grace));
         when(campaignRecipientRepository.countByCampaignId(CAMPAIGN_A)).thenReturn(1L);
 
         campaignService.launch(CAMPAIGN_A);
@@ -376,12 +386,12 @@ class RecipientReuseTest {
         Campaign b = draft(CAMPAIGN_B);
         for (Campaign c : List.of(a, b)) {
             c.setRecipientIds(new HashSet<>(Set.of(10L)));
-            when(campaignRepository.findById(c.getId())).thenReturn(Optional.of(c));
+            when(campaignRepository.findOneById(c.getId())).thenReturn(Optional.of(c));
             when(targetAddressRepository.findByCampaignIdOrderByIdAsc(c.getId()))
                     .thenReturn(List.of(stored(c.getId(), "bob@test.local")));
             when(campaignRecipientRepository.countByCampaignId(c.getId())).thenReturn(2L);
         }
-        when(recipientRepository.findByIdsIn(Set.of(10L))).thenReturn(List.of(ada));
+        when(recipientRepository.findByIdsIn(com.mailflow.tenant.TestTenant.ORG, Set.of(10L))).thenReturn(List.of(ada));
 
         campaignService.launch(CAMPAIGN_A);
         campaignService.launch(CAMPAIGN_B);
@@ -431,11 +441,11 @@ class RecipientReuseTest {
         Recipient fine = contact(4L, "fine@test.local", RecipientStatus.ACTIVE);
         List<String> fileAddresses = List.of("unsub@test.local", "bounced@test.local", "listed@test.local", "fine@test.local");
         List<Recipient> contacts = List.of(unsubscribed, bounced, fine);
-        when(recipientRepository.findByEmailIn(anyList())).thenAnswer(inv -> {
-            List<String> wanted = inv.getArgument(0);
+        when(recipientRepository.findByEmailIn(any(), anyList())).thenAnswer(inv -> {
+            List<String> wanted = inv.getArgument(1);
             return contacts.stream().filter(c -> wanted.contains(c.getEmail())).toList();
         });
-        when(unsubscribeRepository.findEmailsIn(anyList())).thenReturn(List.of("listed@test.local"));
+        when(unsubscribeRepository.findEmailsIn(any(), anyList())).thenReturn(List.of("listed@test.local"));
 
         // Upload: each skipped row says why; none is called a duplicate or "used before".
         ExcelPreviewResponse preview = importService.previewExcel(xlsx(new String[] {"Email"},
@@ -458,12 +468,12 @@ class RecipientReuseTest {
         // Launch still skips them for compliance; only the ACTIVE contact gets a row.
         Campaign a = draft(CAMPAIGN_A);
         a.setRecipientIds(new HashSet<>(Set.of(1L, 2L, 4L)));
-        when(campaignRepository.findById(CAMPAIGN_A)).thenReturn(Optional.of(a));
-        when(recipientRepository.findByIdsIn(Set.of(1L, 2L, 4L))).thenReturn(List.of(unsubscribed, bounced, fine));
+        when(campaignRepository.findOneById(CAMPAIGN_A)).thenReturn(Optional.of(a));
+        when(recipientRepository.findByIdsIn(com.mailflow.tenant.TestTenant.ORG, Set.of(1L, 2L, 4L))).thenReturn(List.of(unsubscribed, bounced, fine));
         when(targetAddressRepository.findByCampaignIdOrderByIdAsc(CAMPAIGN_A))
                 .thenReturn(List.of(stored(CAMPAIGN_A, "listed@test.local")));
-        when(unsubscribeService.isUnsubscribed(anyString()))
-                .thenAnswer(inv -> "listed@test.local".equals(inv.getArgument(0)));
+        when(unsubscribeService.isUnsubscribed(any(), anyString()))
+                .thenAnswer(inv -> "listed@test.local".equals(inv.getArgument(1)));
         when(campaignRecipientRepository.countByCampaignId(CAMPAIGN_A)).thenReturn(1L);
 
         campaignService.launch(CAMPAIGN_A);
@@ -483,7 +493,7 @@ class RecipientReuseTest {
 
         // No targets at all: 400.
         Campaign none = draft(41L);
-        when(campaignRepository.findById(41L)).thenReturn(Optional.of(none));
+        when(campaignRepository.findOneById(41L)).thenReturn(Optional.of(none));
         assertThatThrownBy(() -> campaignService.launch(41L))
                 .isInstanceOf(ValidationException.class)
                 .hasMessage("Campaign has no recipients selected")
@@ -493,8 +503,8 @@ class RecipientReuseTest {
         // Targets, but none can be emailed: 400 as well.
         Campaign unsendable = draft(42L);
         unsendable.setRecipientIds(new HashSet<>(Set.of(1L)));
-        when(campaignRepository.findById(42L)).thenReturn(Optional.of(unsendable));
-        when(recipientRepository.findByIdsIn(Set.of(1L)))
+        when(campaignRepository.findOneById(42L)).thenReturn(Optional.of(unsendable));
+        when(recipientRepository.findByIdsIn(com.mailflow.tenant.TestTenant.ORG, Set.of(1L)))
                 .thenReturn(List.of(contact(1L, "unsub@test.local", RecipientStatus.UNSUBSCRIBED)));
         assertThatThrownBy(() -> campaignService.launch(42L))
                 .isInstanceOf(ValidationException.class)
@@ -508,10 +518,10 @@ class RecipientReuseTest {
         Campaign explicit = draft(43L);
         explicit.setRecipientIds(new HashSet<>(Set.of(10L)));
         explicit.setRecipientGroupIds(new HashSet<>(Set.of(5L)));
-        when(campaignRepository.findById(43L)).thenReturn(Optional.of(explicit));
-        when(recipientRepository.findByIdsIn(Set.of(10L)))
+        when(campaignRepository.findOneById(43L)).thenReturn(Optional.of(explicit));
+        when(recipientRepository.findByIdsIn(com.mailflow.tenant.TestTenant.ORG, Set.of(10L)))
                 .thenReturn(List.of(contact(10L, "picked@test.local", RecipientStatus.ACTIVE)));
-        when(recipientRepository.findByGroupIds(Set.of(5L)))
+        when(recipientRepository.findByGroupIds(com.mailflow.tenant.TestTenant.ORG, Set.of(5L)))
                 .thenReturn(List.of(contact(11L, "member@test.local", RecipientStatus.ACTIVE)));
         when(targetAddressRepository.findByCampaignIdOrderByIdAsc(43L))
                 .thenReturn(List.of(stored(43L, "typed@test.local")));
@@ -533,8 +543,8 @@ class RecipientReuseTest {
         Recipient ada = contact(10L, "ada@test.local", RecipientStatus.ACTIVE);
         Campaign a = draft(CAMPAIGN_A);
         a.setRecipientIds(new HashSet<>(Set.of(10L)));
-        when(campaignRepository.findById(CAMPAIGN_A)).thenReturn(Optional.of(a));
-        when(recipientRepository.findByIdsIn(Set.of(10L))).thenReturn(List.of(ada));
+        when(campaignRepository.findOneById(CAMPAIGN_A)).thenReturn(Optional.of(a));
+        when(recipientRepository.findByIdsIn(com.mailflow.tenant.TestTenant.ORG, Set.of(10L))).thenReturn(List.of(ada));
         when(targetAddressRepository.findByCampaignIdOrderByIdAsc(CAMPAIGN_A))
                 .thenReturn(List.of(stored(CAMPAIGN_A, "bob@test.local")));
         // First launch: no rows yet. Relaunch: both addresses already have their row.
@@ -594,7 +604,7 @@ class RecipientReuseTest {
     // ── Helpers ─────────────────────────────────────────────────────────────────
 
     private Campaign draft(long id) {
-        return Campaign.builder()
+        return Campaign.builder().organizationId(com.mailflow.tenant.TestTenant.ORG)
                 .id(id)
                 .name("[test] campaign " + id)
                 .subject("Hello {{FirstName}}")

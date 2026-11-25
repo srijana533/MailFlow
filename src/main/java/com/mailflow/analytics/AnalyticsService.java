@@ -30,7 +30,7 @@ public class AnalyticsService {
     /** Analytics of one campaign; 404 for a deleted campaign, like GET /api/campaigns/{id}. */
     @Transactional(readOnly = true)
     public CampaignAnalytics getCampaignAnalytics(Long campaignId) {
-        Campaign campaign = campaignRepository.findById(campaignId)
+        Campaign campaign = campaignRepository.findOneById(campaignId)
                 .filter(c -> !c.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("Campaign", campaignId));
 
@@ -91,7 +91,7 @@ public class AnalyticsService {
     public List<Map<String, Object>> getDailyVolume(int days) {
         Instant from = Instant.now().minus(days, ChronoUnit.DAYS);
         Instant to   = Instant.now();
-        return emailLogRepository.dailyVolume(from, to)
+        return emailLogRepository.dailyVolume(com.mailflow.tenant.TenantContext.requireOrganizationId(), from, to)
                 .stream()
                 .map(row -> Map.of("date", row[0].toString(), "count", row[1]))
                 .toList();

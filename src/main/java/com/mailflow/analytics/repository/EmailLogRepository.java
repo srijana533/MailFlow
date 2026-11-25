@@ -35,9 +35,11 @@ public interface EmailLogRepository extends JpaRepository<EmailLog, Long> {
              AND l.processed_at <= :to
              AND l.status = 'SENT'
              AND c.deleted_at IS NULL
+             AND c.organization_id = :orgId
            GROUP BY DATE_TRUNC('day', l.processed_at)
            ORDER BY 1
            """,
            nativeQuery = true)
-    List<Object[]> dailyVolume(@Param("from") Instant from, @Param("to") Instant to);
+    List<Object[]> dailyVolume(@Param("orgId") Long organizationId,
+                               @Param("from") Instant from, @Param("to") Instant to);
 }

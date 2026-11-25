@@ -12,11 +12,12 @@ MailFlow is a full-stack email campaign platform that lets authenticated users i
 4. [Local Setup](#local-setup)
 5. [Environment Variables](#environment-variables)
 6. [Email: MailHog vs Gmail](#email-mailhog-vs-gmail)
-7. [Demo Flow](#demo-flow)
-8. [Demo Credentials](#demo-credentials)
-9. [Testing](#testing)
-10. [Project Structure](#project-structure)
-11. [Roadmap](#roadmap)
+7. [Deployment](#deployment)
+8. [Demo Flow](#demo-flow)
+9. [Demo Credentials](#demo-credentials)
+10. [Testing](#testing)
+11. [Project Structure](#project-structure)
+12. [Roadmap](#roadmap)
 
 ---
 
@@ -29,11 +30,14 @@ MailFlow is a full-stack email campaign platform that lets authenticated users i
 - **Asynchronous bulk sending** — Spring Batch reads recipients in pages and publishes to RabbitMQ; a consumer sends over SMTP.
 - **Redis rate limiting & idempotency** — token-bucket limiting per campaign and a per-recipient idempotency key prevent duplicate delivery on retries/restarts.
 - **Retry handling** — transient SMTP failures are retried with backoff; permanent failures are not retried.
-- **Role-based access** — JWT auth with `ADMIN`, `CAMPAIGN_MANAGER`, and `VIEWER` roles.
+- **Company workspaces** — anyone can sign up and gets a new, private company workspace as its Admin. Each company only sees its own contacts, groups, templates, campaigns, attachments, analytics and unsubscribe list.
+- **Team management** — a company's Admin adds people with a role, changes roles, and disables accounts (a disabled person's sessions stop working at once).
+- **Role-based access** — JWT auth with `ADMIN`, `CAMPAIGN_MANAGER`, and `VIEWER` roles, checked on every request.
 - **Gmail SMTP integration** — real delivery via a Google App Password, configured entirely through environment variables; MailHog is the default for local/dev.
 - **AI-assisted drafting (optional)** — a "Improve with AI" action that uses Google Gemini to polish an email draft's subject and body (tone, clarity, professionalism) while preserving meaning, facts, links and merge variables. Human reviews and edits before use; nothing is sent automatically. Fully env-driven and off by default.
 - **Campaign tracking** — per-campaign sent/failed/skipped counts and a dashboard with real delivery stats.
-- **API docs** — Swagger UI at `/swagger-ui.html`.
+- **API docs** — Swagger UI at `/swagger-ui.html` (off in production unless `API_DOCS_ENABLED=true`).
+- **Deployable on free tiers** — frontend on Vercel, backend on Render with Neon, Upstash, CloudAMQP and Brevo. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ---
 
@@ -203,6 +207,12 @@ Get a key from [Google AI Studio](https://aistudio.google.com/apikey). The key i
 
 ---
 
+## Deployment
+
+The frontend goes on **Vercel** and the backend on **Render**. Vercel can't run the backend, which is a long-running server with a queue consumer and batch jobs. PostgreSQL, Redis, RabbitMQ and SMTP come from Neon, Upstash, CloudAMQP and Brevo, all with free plans. `render.yaml` and `frontend/vercel.json` hold the configuration. The step-by-step guide, including the free-plan limits, is [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+---
+
 ## Demo Flow
 
 A recruiter / reviewer can exercise the whole product in a few minutes:
@@ -220,7 +230,7 @@ A recruiter / reviewer can exercise the whole product in a few minutes:
 
 ## Demo Credentials
 
-> Seeded for local development. **Change them before any real deployment.**
+> Seeded for local development, in the `Default` company. With `DEMO_ACCOUNTS_ENABLED=false` (required by the `prod` profile) they are disabled at start-up. On a deployment, sign up instead.
 
 | Role | Email | Password |
 |---|---|---|
