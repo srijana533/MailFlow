@@ -23,6 +23,7 @@ Do the steps in order: each one produces a value that a later one needs.
 - **Render's free backend sleeps after 15 minutes without requests.** The next request wakes it, and this takes 1 to 3 minutes. While it sleeps, scheduled campaigns don't start and queued emails aren't sent. A paid Render instance (about $7/month) stays awake.
 - **Uploaded attachments are lost** when Render restarts or redeploys the backend, because the free instance has no persistent disk. Contacts, templates and campaigns are in PostgreSQL and are kept.
 - Brevo's free plan sends about **300 emails a day**.
+- **Render's free plan blocks outgoing email on ports 25, 465 and 587.** `render.yaml` therefore uses Brevo's port **2525**. With another SMTP provider, use a port it offers other than those three, or a paid Render instance.
 
 ---
 

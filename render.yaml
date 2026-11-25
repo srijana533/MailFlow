@@ -70,8 +70,10 @@ services:
         value: production
       - key: SMTP_HOST
         value: smtp-relay.brevo.com
+      # Brevo also listens on 2525. Render's free plan blocks outgoing SMTP on 25, 465
+      # and 587 (the connection times out), so 2525 is used; STARTTLS still applies.
       - key: SMTP_PORT
-        value: "587"
+        value: "2525"
       - key: SMTP_AUTH
         value: "true"
       - key: SMTP_TLS
