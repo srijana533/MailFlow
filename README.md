@@ -4,6 +4,8 @@ MailFlow is a full-stack email campaign platform that lets authenticated users i
 
 ---
 
+> **Full documentation:** [`docs/PROJECT_DOCUMENTATION.md`](docs/PROJECT_DOCUMENTATION.md) explains how every part works and why it was built that way, with a [code reference for every class](docs/reference/BACKEND_CODE_REFERENCE.md) and the [complete source code](docs/appendix/).
+
 ## Table of Contents
 
 1. [Features](#features)
